@@ -22,37 +22,20 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ---------------- SESIONES EN MEMORIA ----------------
+// ---------------- MEMORIA DE CONVERSACIÓN ----------------
 
-/**
- * sessions guarda el estado de cada número:
- * {
- *   "whatsapp:+52....": {
- *      step: 0..6,
- *      nombre: "",
- *      tipo: "SPA" | "POLE",
- *      servicio: "",
- *      fecha: "AAAA-MM-DD",
- *      hora: "HH:MM"
- *   }
- * }
- */
+// sessions guarda el historial de mensajes por número de WhatsApp:
+// {
+//   "whatsapp:+52...": [
+//      { role: "user", content: "..." },
+//      { role: "assistant", content: "..." },
+//      ...
+//   ]
+// }
 const sessions = {};
 
-function getSession(from) {
-  if (!sessions[from]) {
-    sessions[from] = { step: 0 };
-  }
-  return sessions[from];
-}
-
-async function sendWhats(to, text) {
-  return twilioClient.messages.create({
-    from: process.env.TWILIO_WHATSAPP_NUMBER,
-    to,
-    body: text,
-  });
-}
+// pequeña función para simular que Soni tarda tantito en contestar
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ---------------- RUTAS ----------------
 
@@ -64,184 +47,74 @@ app.get("/", (req, res) => {
 app.post("/whatsapp-webhook", async (req, res) => {
   const from = req.body.From; // ejemplo: "whatsapp:+52155..."
   const body = (req.body.Body || "").trim();
-  const lower = body.toLowerCase();
-  const lowerNoAccents = lower.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
   console.log("Mensaje entrante:", from, body);
 
-  const session = getSession(from);
+  // Inicializar historial para este número si no existe
+  if (!sessions[from]) {
+    sessions[from] = [];
+  }
+
+  const history = sessions[from];
 
   try {
-    // Detectar si la persona quiere reservar
-    const quiereReservar =
-      lower.includes("cita") ||
-      lower.includes("agendar") ||
-      lower.includes("reservar") ||
-      lower.includes("reserva") ||
-      lower.includes("clase");
+    // Añadimos el mensaje del usuario al historial
+    history.push({ role: "user", content: body });
 
-    // Si ya estamos en flujo o el mensaje suena a reserva
-    if (session.step > 0 || quiereReservar) {
-      // ------- Paso 0 → iniciar flujo -------
-      if (session.step === 0) {
-        session.step = 1;
-        await sendWhats(
-          from,
-          "Perfecto, te ayudo a agendar en Town Art 💜\n\n¿A nombre de quién hacemos la reserva? (Escribe tu nombre completo)"
-        );
-        return res.sendStatus(200);
-      }
+    // Construimos la conversación: system + últimos ~10 mensajes
+    const conversation = [
+      { role: "system", content: SYSTEM_PROMPT },
+      ...history.slice(-10),
+    ];
 
-      // ------- Paso 1: nombre -------
-      if (session.step === 1) {
-        session.nombre = body;
-        session.step = 2;
-        await sendWhats(
-          from,
-          `Gracias, ${session.nombre} 🤍\n\n¿La reserva es para el *SPA* o para una *CLASE DE POLE*? (Escribe SPA o POLE)`
-        );
-        return res.sendStatus(200);
-      }
-
-      // ------- Paso 2: tipo (SPA / POLE) -------
-      if (session.step === 2) {
-        if (lower.includes("spa")) {
-          session.tipo = "SPA";
-        } else if (lower.includes("pole")) {
-          session.tipo = "POLE";
-        } else {
-          await sendWhats(
-            from,
-            "Solo para confirmar, ¿la reserva es para *SPA* o para *CLASE DE POLE*?"
-          );
-          return res.sendStatus(200);
-        }
-
-        session.step = 3;
-
-        if (session.tipo === "SPA") {
-          await sendWhats(
-            from,
-            "Perfecto, SPA 💆‍♀️\n\n¿Qué servicio te interesa? Ejemplo: limpieza facial profunda, masaje relajante, drenaje linfático, despigmentación, valoración, etc."
-          );
-        } else {
-          await sendWhats(
-            from,
-            "Perfecto, CLASE DE POLE 🩰\n\n¿Qué clase te interesa? Ejemplo: Pole Fitness, Flying Pole, Flexi (flexibilidad), Floorwork o Acrobacia."
-          );
-        }
-
-        return res.sendStatus(200);
-      }
-
-      // ------- Paso 3: servicio -------
-      if (session.step === 3) {
-        session.servicio = body;
-        session.step = 4;
-        await sendWhats(
-          from,
-          "Genial ✨\n\n¿Para qué día quieres tu cita? Escríbelo en formato AAAA-MM-DD.\nEjemplo: 2025-12-15."
-        );
-        return res.sendStatus(200);
-      }
-
-      // ------- Paso 4: fecha -------
-      if (session.step === 4) {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(body)) {
-          await sendWhats(
-            from,
-            "Para evitar errores, escribe la fecha así: AAAA-MM-DD.\nEjemplo: 2025-12-15."
-          );
-          return res.sendStatus(200);
-        }
-
-        session.fecha = body;
-        session.step = 5;
-        await sendWhats(
-          from,
-          "¿A qué hora te gustaría? Escribe la hora en formato 24 horas.\nEjemplo: 18:00."
-        );
-        return res.sendStatus(200);
-      }
-
-      // ------- Paso 5: hora -------
-      if (session.step === 5) {
-        if (!/^\d{2}:\d{2}$/.test(body)) {
-          await sendWhats(
-            from,
-            "Escribe la hora así: HH:MM en formato 24 horas.\nEjemplo: 18:00."
-          );
-          return res.sendStatus(200);
-        }
-
-        session.hora = body;
-        session.step = 6;
-
-        const resumen =
-          `Perfecto, te resumo la reserva:\n\n` +
-          `Nombre: ${session.nombre}\n` +
-          `Área: ${session.tipo}\n` +
-          `Servicio: ${session.servicio}\n` +
-          `Fecha: ${session.fecha}\n` +
-          `Hora: ${session.hora}\n\n` +
-          `¿Es correcto? Responde *SI* para confirmar o *NO* para ajustar fecha y hora.`;
-
-        await sendWhats(from, resumen);
-        return res.sendStatus(200);
-      }
-
-      // ------- Paso 6: confirmación -------
-      if (session.step === 6) {
-        if (lowerNoAccents.startsWith("si")) {
-          console.log("Reserva confirmada:", session);
-
-          await sendWhats(
-            from,
-            "Listo 💜 Tu cita quedó registrada con nosotros.\n" +
-              "En breve alguien del equipo de Town Art la confirmará y te enviará los detalles."
-          );
-
-          // Aquí luego conectaremos Google Calendar / Happoin si quieres
-          sessions[from] = { step: 0 }; // reiniciar flujo
-        } else {
-          // NO → solo corregimos fecha y hora, no reiniciamos todo
-          session.step = 4;
-          await sendWhats(
-            from,
-            "Perfecto, vamos a ajustar tu cita 😊\n\n" +
-              "Primero dime de nuevo la *fecha* en formato AAAA-MM-DD.\n" +
-              "Ejemplo: 2025-12-15."
-          );
-        }
-
-        return res.sendStatus(200);
-      }
-    }
-
-    // --------- RESPUESTA NORMAL CON IA (sin flujo de reserva) ---------
+    // Llamada a OpenAI
     const completion = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: body },
-      ],
+      messages: conversation,
     });
 
-    const respuestaIA =
-      completion.choices[0].message.content ||
-      "Lo siento, no entendí muy bien tu mensaje. ¿Puedes repetirlo de otra forma? 😊";
+    let respuestaIA =
+      completion.choices[0]?.message?.content?.trim() ||
+      "Perdón, no alcancé a entender bien tu mensaje. ¿Me lo puedes escribir de otra forma?";
 
-    await sendWhats(from, respuestaIA);
+    // Evitar respuestas tipo "ok" muy cortas
+    const lowerResp = respuestaIA.toLowerCase();
+    if (
+      lowerResp === "ok" ||
+      lowerResp === "oki" ||
+      lowerResp === "va" ||
+      lowerResp === "vale"
+    ) {
+      respuestaIA =
+        "Perfecto, lo tengo anotado 🙌 ¿Te gustaría que veamos horarios o que te explique un poquito más el servicio?";
+    }
 
+    // Simular que Soni tarda un poco en responder (1.5 segundos)
+    await sleep(1500);
+
+    // Enviamos la respuesta por WhatsApp
+    await twilioClient.messages.create({
+      from: process.env.TWILIO_WHATSAPP_NUMBER,
+      to: from,
+      body: respuestaIA,
+    });
+
+    // Guardamos la respuesta en el historial
+    history.push({ role: "assistant", content: respuestaIA });
+
+    // Respondemos a Twilio
     res.status(200).send("OK");
   } catch (error) {
     console.error("Error en el webhook:", error);
 
+    // Mensaje de emergencia al usuario si algo falla
     try {
-      await sendWhats(
-        from,
-        "Ups, tuve un problema para responderte. ¿Puedes intentar de nuevo en unos minutos, por favor? 💜"
-      );
+      await twilioClient.messages.create({
+        from: process.env.TWILIO_WHATSAPP_NUMBER,
+        to: from,
+        body:
+          "Tuve un problemita para responderte justo ahora 😔. Intenta escribirme de nuevo en unos minutos, por favor.",
+      });
     } catch (e) {
       console.error("Error enviando mensaje de error:", e);
     }
