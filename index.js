@@ -69,11 +69,9 @@ async function crearCitaCalendar(session, from) {
   try {
     const timeZone = "America/Mexico_City";
 
-    // session.fecha = "AAAA-MM-DD", session.hora = "HH:MM"
     const [year, month, day] = session.fecha.split("-").map(Number);
     const [hour, minute] = session.hora.split(":").map(Number);
 
-    // Construimos fecha en UTC pero indicamos zona en el evento
     const start = new Date(Date.UTC(year, month - 1, day, hour, minute));
     const end = new Date(start.getTime() + 60 * 60000); // +60 minutos
 
@@ -106,6 +104,66 @@ async function crearCitaCalendar(session, from) {
   }
 }
 
+// ---------------- HELPERS FECHA / HORA ----------------
+
+// Devuelve 'YYYY-MM-DD' o null si no entiende
+function parseFechaToISO(text) {
+  const t = text.trim().toLowerCase();
+
+  // Formato YYYY-MM-DD
+  let m = t.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+  if (m) {
+    let year = m[1];
+    let month = m[2].padStart(2, "0");
+    let day = m[3].padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  // Formato DD/MM/YYYY o DD-MM-YYYY
+  m = t.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (m) {
+    let day = m[1].padStart(2, "0");
+    let month = m[2].padStart(2, "0");
+    let year = m[3];
+    return `${year}-${month}-${day}`;
+  }
+
+  // Si no entendimos, devolvemos null para pedir que lo aclaren
+  return null;
+}
+
+// Devuelve 'HH:MM' 24h o null si no entiende
+function parseHoraTo24(text) {
+  let t = text.trim().toLowerCase();
+  t = t.replace(/\s+/g, " ");
+
+  // 24h: 18:30, 9:05, etc.
+  let m = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (m) {
+    let hh = parseInt(m[1], 10);
+    let mm = parseInt(m[2], 10);
+    if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+      return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    }
+  }
+
+  // Formato "6 pm", "6pm", "10 am", etc.
+  m = t.match(/^(\d{1,2})(:(\d{2}))?\s*(am|pm)$/);
+  if (m) {
+    let hh = parseInt(m[1], 10);
+    let mm = m[3] ? parseInt(m[3], 10) : 0;
+    const ampm = m[4];
+
+    if (hh >= 1 && hh <= 12 && mm >= 0 && mm <= 59) {
+      if (ampm === "pm" && hh !== 12) hh += 12;
+      if (ampm === "am" && hh === 12) hh = 0;
+      return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    }
+  }
+
+  return null;
+}
+
 // ---------------- SESIONES EN MEMORIA ----------------
 
 /**
@@ -116,7 +174,7 @@ async function crearCitaCalendar(session, from) {
  *      nombre: "",
  *      tipo: "SPA" | "POLE",
  *      servicio: "",
- *      fecha: "AAAA-MM-DD",
+ *      fecha: "YYYY-MM-DD",
  *      hora: "HH:MM"
  *   }
  * }
@@ -130,7 +188,9 @@ function getSession(from) {
   return sessions[from];
 }
 
+// pequeño delay para que no responda tan robótico
 async function sendWhats(to, text) {
+  await new Promise((resolve) => setTimeout(resolve, 1500)); // 1.5s
   return twilioClient.messages.create({
     from: process.env.TWILIO_WHATSAPP_NUMBER,
     to,
@@ -206,12 +266,12 @@ app.post("/whatsapp-webhook", async (req, res) => {
         if (session.tipo === "SPA") {
           await sendWhats(
             from,
-            "Perfecto, SPA 💆‍♀️\n\n¿Qué servicio te interesa? Ejemplo: limpieza facial profunda, masaje relajante, drenaje linfático, despigmentación, valoración, etc."
+            "Perfecto, SPA 💆‍♀️\n\n¿Qué servicio te interesa? Por ejemplo: valoración, limpieza facial profunda, masaje relajante, drenaje linfático, despigmentación, etc."
           );
         } else {
           await sendWhats(
             from,
-            "Perfecto, CLASE DE POLE 🩰\n\n¿Qué clase te interesa? Ejemplo: Pole Fitness, Flying Pole, Flexi (flexibilidad), Floorwork o Acrobacia."
+            "Perfecto, CLASE DE POLE 🩰\n\n¿Qué clase te interesa? Por ejemplo: Pole Fitness, Flying Pole, Flexi (flexibilidad), Floorwork o Acrobacia."
           );
         }
 
@@ -224,41 +284,48 @@ app.post("/whatsapp-webhook", async (req, res) => {
         session.step = 4;
         await sendWhats(
           from,
-          "Genial ✨\n\n¿Para qué día quieres tu cita? Escríbelo en formato AAAA-MM-DD.\nEjemplo: 2025-12-15."
+          "Genial ✨\n\n¿Para qué día quieres tu cita? Puedes escribirme algo como:\n" +
+            "- 2025-12-15\n" +
+            "- 15/12/2025"
         );
         return res.sendStatus(200);
       }
 
       // ------- Paso 4: fecha -------
       if (session.step === 4) {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(body)) {
+        const fechaISO = parseFechaToISO(body);
+        if (!fechaISO) {
           await sendWhats(
             from,
-            "Para evitar errores, escribe la fecha así: AAAA-MM-DD.\nEjemplo: 2025-12-15."
+            "No alcancé a entender bien la fecha 🙈\n¿Me la escribes con día, mes y año? Por ejemplo: 15/12/2025."
           );
           return res.sendStatus(200);
         }
 
-        session.fecha = body;
+        session.fecha = fechaISO;
         session.step = 5;
         await sendWhats(
           from,
-          "¿A qué hora te gustaría? Escribe la hora en formato 24 horas.\nEjemplo: 18:00."
+          "¿A qué hora te gustaría? Puedes escribirme, por ejemplo:\n" +
+            "- 18:00\n" +
+            "- 6 pm\n" +
+            "- 6:30 pm"
         );
         return res.sendStatus(200);
       }
 
       // ------- Paso 5: hora -------
       if (session.step === 5) {
-        if (!/^\d{2}:\d{2}$/.test(body)) {
+        const hora24 = parseHoraTo24(body);
+        if (!hora24) {
           await sendWhats(
             from,
-            "Escribe la hora así: HH:MM en formato 24 horas.\nEjemplo: 18:00."
+            "No me quedó clara la hora 🙈\n¿Me la escribes así: 18:00, 6 pm, 6:30 pm, 10 am, etc.?"
           );
           return res.sendStatus(200);
         }
 
-        session.hora = body;
+        session.hora = hora24;
         session.step = 6;
 
         const resumen =
@@ -279,7 +346,7 @@ app.post("/whatsapp-webhook", async (req, res) => {
         if (lowerNoAccents.startsWith("si")) {
           console.log("Reserva confirmada:", session);
 
-          // 👉 Crear evento en Google Calendar
+          // Crear evento en Google Calendar
           await crearCitaCalendar(session, from);
 
           await sendWhats(
@@ -296,8 +363,7 @@ app.post("/whatsapp-webhook", async (req, res) => {
           await sendWhats(
             from,
             "Perfecto, vamos a ajustar tu cita 😊\n\n" +
-              "Primero dime de nuevo la *fecha* en formato AAAA-MM-DD.\n" +
-              "Ejemplo: 2025-12-15."
+              "Primero dime de nuevo la fecha. Puedes escribirla como 2025-12-15 o 15/12/2025."
           );
         }
 
@@ -314,9 +380,20 @@ app.post("/whatsapp-webhook", async (req, res) => {
       ],
     });
 
-    const respuestaIA =
+    let respuestaIA =
       completion.choices[0].message.content ||
       "Lo siento, no entendí muy bien tu mensaje. ¿Puedes repetirlo de otra forma? 😊";
+
+    const lowerResp = respuestaIA.trim().toLowerCase();
+    if (
+      lowerResp === "ok" ||
+      lowerResp === "oki" ||
+      lowerResp === "va" ||
+      lowerResp === "vale"
+    ) {
+      respuestaIA =
+        "Perfecto, lo tengo anotado 🙌 ¿Te gustaría que veamos horarios o que te explique un poquito más el servicio?";
+    }
 
     await sendWhats(from, respuestaIA);
 
