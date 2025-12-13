@@ -23,15 +23,38 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Cliente de Google Calendar (service account)
-const jwtClient = new google.auth.JWT(
-  process.env.GOOGLE_CLIENT_EMAIL,
-  null,
-  process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-  ["https://www.googleapis.com/auth/calendar"]
-);
+// ---------- Google Calendar (opcional, para que no truene si falta algo) ----------
+let calendar = null;
 
-const calendar = google.calendar({ version: "v3", auth: jwtClient });
+function initCalendarSafe() {
+  try {
+    if (
+      !process.env.GOOGLE_CLIENT_EMAIL ||
+      !process.env.GOOGLE_PRIVATE_KEY ||
+      !process.env.GOOGLE_CALENDAR_ID
+    ) {
+      console.warn(
+        "⚠️ Google Calendar desactivado: faltan variables de entorno."
+      );
+      return;
+    }
+
+    const jwtClient = new google.auth.JWT(
+      process.env.GOOGLE_CLIENT_EMAIL,
+      null,
+      process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      ["https://www.googleapis.com/auth/calendar"]
+    );
+
+    calendar = google.calendar({ version: "v3", auth: jwtClient });
+    console.log("✅ Google Calendar inicializado correctamente");
+  } catch (err) {
+    console.error("Error inicializando Google Calendar:", err);
+    calendar = null;
+  }
+}
+
+initCalendarSafe();
 
 // Memoria simple de sesión por usuario (en RAM)
 const sessions = {}; // { from: { step, nombre, tipo, servicio, fecha, hora } }
@@ -51,8 +74,15 @@ async function sendWhats(to, text) {
   });
 }
 
-// Crear evento en Google Calendar
+// Crear evento en Google Calendar (si está activo)
 async function crearCitaCalendar(session, from) {
+  if (!calendar) {
+    console.warn(
+      "⚠️ Se intentó crear cita en Calendar pero no está configurado."
+    );
+    return;
+  }
+
   const timeZone = "America/Mexico_City";
 
   // fecha: AAAA-MM-DD, hora: HH:MM
@@ -283,4 +313,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
 });
-
