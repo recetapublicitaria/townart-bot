@@ -194,20 +194,63 @@ app.post("/whatsapp-webhook", async (req, res) => {
   const session = getSession(from);
 
   try {
-   // Detectar si la persona REALMENTE quiere reservar/agendar
-const quiereReservar =
-  lower.includes("quiero agendar") ||
-  lower.includes("quiero reservar") ||
-  lower.includes("quiero una cita") ||
-  lower.includes("quiero mi cita") ||
-  lower.includes("agendar cita") ||
-  lower.includes("agendar una cita") ||
-  lower.includes("reservar cita") ||
-  lower.includes("reservar una clase") ||
-  lower.includes("reservar clase") ||
-  lower.includes("apartar lugar") ||
-  lower.includes("apartar mi lugar");
+    // --- 1) Detectar si el mensaje habla de SPA o de CLASES (para recordar contexto) ---
+    const spaKeywords = [
+      "spa",
+      "facial",
+      "masaje",
+      "corporal",
+      "despigment",
+      "acne",
+      "acné",
+      "estria",
+      "estría",
+      "celulitis",
+      "depilacion",
+      "depilación",
+      "valoracion",
+      "valoración",
+      "manchas",
+      "pigment"
+    ];
 
+    const poleKeywords = [
+      "pole",
+      "flying",
+      "flexi",
+      "floorwork",
+      "acrobacia",
+      "aereo",
+      "aéreo",
+      "clase de pole",
+      "clases de pole"
+    ];
+
+    if (spaKeywords.some((k) => lower.includes(k))) {
+      session.lastArea = "SPA";
+    } else if (poleKeywords.some((k) => lower.includes(k))) {
+      session.lastArea = "POLE";
+    }
+
+    // --- 2) Detectar si realmente quiere reservar/agendar ---
+    const isAffirmative =
+      lower === "si" || lower === "sí" || lower === "claro" || lower === "va";
+
+    const quiereReservar =
+      lower.includes("quiero agendar") ||
+      lower.includes("quiero reservar") ||
+      lower.includes("quiero una cita") ||
+      lower.includes("quiero mi cita") ||
+      lower.includes("agendar cita") ||
+      lower.includes("agendar una cita") ||
+      lower.includes("reservar cita") ||
+      lower.includes("reservar una clase") ||
+      lower.includes("reservar clase") ||
+      lower.includes("apartar lugar") ||
+      lower.includes("apartar mi lugar") ||
+      // Caso especial: ya veníamos hablando de algo (Spa o Pole),
+      // y la persona solo responde "sí" después de que tú le ofreciste agendar.
+      (session.step === 0 && session.lastArea && isAffirmative);
 
     // ---------- FLUJO DE RESERVA ----------
     if (session.step > 0 || quiereReservar) {
@@ -225,38 +268,61 @@ const quiereReservar =
       if (session.step === 1) {
         session.nombre = body;
         session.step = 2;
-        await sendWhats(
-          from,
-          `Gracias, ${session.nombre} 🤍\n\n¿La reserva es para el *SPA* o para una *CLASE DE POLE*? (Escribe SPA o POLE)`
-        );
-        return res.sendStatus(200);
+
+        // Aquí NO mandamos todavía el mensaje; primero vemos si ya sabemos SPA/POLE
+        // (lo resolvemos en el bloque de paso 2)
+        // Pasamos directo al siguiente bloque lógico
       }
 
-      // Paso 2: tipo
+      // Paso 2: tipo (SPA / POLE)
       if (session.step === 2) {
-        if (lower.includes("spa")) {
-          session.tipo = "SPA";
-        } else if (lower.includes("pole")) {
-          session.tipo = "POLE";
-        } else {
+        // 1) Si el mensaje actual menciona spa/pole, lo usamos
+        if (!session.tipo) {
+          if (lower.includes("spa")) {
+            session.tipo = "SPA";
+          } else if (lower.includes("pole")) {
+            session.tipo = "POLE";
+          }
+        }
+
+        // 2) Si NO lo dijo en este mensaje, pero veníamos hablando de algo, usamos ese contexto
+        if (!session.tipo && session.lastArea) {
+          session.tipo = session.lastArea;
+        }
+
+        // 3) Si aún así no sabemos, preguntamos normal
+        if (!session.tipo) {
           await sendWhats(
             from,
-            "Solo para confirmar, ¿la reserva es para *SPA* o para *CLASE DE POLE*?"
+            `Gracias, ${session.nombre} 🤍\n\n¿La reserva es para el *SPA* o para una *CLASE DE POLE*? (Escribe SPA o POLE)`
           );
           return res.sendStatus(200);
         }
 
+        // 4) Ya tenemos tipo (SPA o POLE), avanzamos al paso 3 sin volver a preguntar
         session.step = 3;
 
         if (session.tipo === "SPA") {
           await sendWhats(
             from,
-            "Perfecto, SPA 💆‍♀️\n\n¿Qué servicio te interesa? Ejemplo: limpieza facial profunda, masaje relajante, drenaje linfático, despigmentación, valoración, etc."
+            `Gracias, ${session.nombre} 🤍\n\nAgendamos en el *SPA* 💆‍♀️\n\n¿Qué servicio te interesa? Por ejemplo:\n` +
+              "- Limpieza facial profunda\n" +
+              "- Hidratante\n" +
+              "- Despigmentante\n" +
+              "- Masaje relajante\n" +
+              "- Drenaje linfático\n" +
+              "- Despigmentación corporal\n" +
+              "- Consulta de valoración\n\nEscríbelo con tus palabras y yo lo entiendo 🙂"
           );
         } else {
           await sendWhats(
             from,
-            "Perfecto, CLASE DE POLE 🩰\n\n¿Qué clase te interesa? Ejemplo: Pole Fitness, Flying Pole, Flexi (flexibilidad), Floorwork o Acrobacia."
+            `Gracias, ${session.nombre} 🤍\n\nAgendamos una *CLASE DE POLE* 🩰\n\n¿Qué clase te interesa? Por ejemplo:\n` +
+              "- Pole Fitness\n" +
+              "- Flying Pole\n" +
+              "- Flexi (flexibilidad)\n" +
+              "- Floorwork\n" +
+              "- Acrobacia"
           );
         }
 
@@ -348,7 +414,7 @@ const quiereReservar =
             );
           }
 
-          // Reiniciar flujo
+          // Reiniciar flujo (dejamos solo step; lastArea se vuelve a detectar por mensajes)
           sessions[from] = { step: 0 };
         } else {
           session.step = 4;
@@ -363,6 +429,38 @@ const quiereReservar =
         return res.sendStatus(200);
       }
     }
+
+    // ---------- RESPUESTA NORMAL CON IA ----------
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4.1-mini",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: body },
+      ],
+    });
+
+    const respuestaIA =
+      completion.choices[0].message.content ||
+      "Lo siento, no entendí muy bien tu mensaje. ¿Puedes repetirlo de otra forma? 😊";
+
+    await sendWhats(from, respuestaIA);
+
+    res.status(200).send("OK");
+  } catch (error) {
+    console.error("Error en el webhook:", error);
+
+    try {
+      await sendWhats(
+        from,
+        "Ups, tuve un problema para responderte. ¿Puedes intentar de nuevo en unos minutos, por favor? 💜"
+      );
+    } catch (e) {
+      console.error("Error enviando mensaje de error:", e);
+    }
+
+    res.sendStatus(500);
+  }
+});
 
     // ---------- RESPUESTA NORMAL CON IA ----------
     const completion = await openai.chat.completions.create({
