@@ -622,9 +622,9 @@ app.post("/whatsapp-webhook", async (req, res) => {
         "Si quieres, también puedo ayudarte a agendar una cita o explicarte algún servicio.";
     }
 
-    await sendWhats(from, respuestaIA);
+  await sendWhats(from, respuestaIA);
 
-    res.status(200).send("OK");
+res.sendStatus(200); // solo manda código 200, sin texto "OK"
   } catch (error) {
     console.error("Error en el webhook:", error);
 
