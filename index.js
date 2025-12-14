@@ -247,6 +247,36 @@ async function crearEventoCalendarDesdeSession(session) {
     60
   );
 
+  // --- 1) Verificar capacidad SOLO para SPA (máximo 2 citas a la vez) ---
+  if (session.tipo === "SPA") {
+    // Convertimos a formato con zona (-06:00) para la búsqueda
+    const timeMin = `${startDateTime}-06:00`;
+    const timeMax = `${endDateTime}-06:00`;
+
+    const eventsResp = await calendar.events.list({
+      calendarId: CALENDAR_ID,
+      timeMin,
+      timeMax,
+      singleEvents: true,
+      orderBy: "startTime",
+    });
+
+    const items = eventsResp.data.items || [];
+
+    // Contamos solo eventos de SPA (por si en el mismo calendario también hay pole)
+    const spaEvents = items.filter((ev) => {
+      const summary = (ev.summary || "").toLowerCase();
+      return summary.startsWith("spa");
+    });
+
+    if (spaEvents.length >= 2) {
+      const err = new Error("CAPACITY_REACHED");
+      err.code = "capacity_reached";
+      throw err;
+    }
+  }
+
+  // --- 2) Si hay espacio, creamos el evento normalmente ---
   const resumen =
     session.tipo === "SPA"
       ? `SPA – ${session.servicio}`
@@ -557,32 +587,47 @@ app.post("/whatsapp-webhook", async (req, res) => {
         if (lowerNoAccents.startsWith("si")) {
           console.log("Reserva confirmada:", session);
 
-          try {
-            const event = await crearEventoCalendarDesdeSession(session);
+             try {
+      const event = await crearEventoCalendarDesdeSession(session);
 
-            await sendWhats(
-              from,
-              "Listo 💜 Tu cita quedó registrada.\n" +
-                "También la agendé en nuestro calendario interno 🗓️.\n" +
-                "Si necesitas cambiar algo, solo escríbeme por aquí."
-            );
+      await sendWhats(
+        from,
+        "Listo 💜 Tu cita quedó registrada.\n" +
+          "También la agendé en nuestro calendario interno 🗓️.\n" +
+          "Si necesitas cambiar algo, solo escríbeme por aquí."
+      );
 
-            console.log("Evento guardado con id:", event.id);
-          } catch (calendarError) {
-            console.error(
-              "Error al crear el evento en Calendar:",
-              calendarError
-            );
+      console.log("Evento guardado con id:", event.id);
+    } catch (calendarError) {
+      console.error(
+        "Error al crear el evento en Calendar:",
+        calendarError
+      );
 
-            await sendWhats(
-              from,
-              "Tu cita quedó registrada conmigo, pero tuve un detallito al guardarla en el calendario interno.\n" +
-                "El equipo la revisará manualmente y te confirmará cualquier ajuste."
-            );
-          }
+      // Si el problema es de capacidad llena (ya hay 2 citas)
+      if (
+        calendarError.code === "capacity_reached" ||
+        calendarError.message === "CAPACITY_REACHED"
+      ) {
+        await sendWhats(
+          from,
+          "Justo en ese horario ya tenemos el máximo de citas de spa agendadas 🙈\n" +
+            "¿Te parece si buscamos otra hora el mismo día o vemos otro día cercano?"
+        );
+      } else {
+        // Otros errores (red, credenciales, etc.)
+        await sendWhats(
+          from,
+          "Tu cita quedó registrada conmigo, pero tuve un detallito al guardarla en el calendario interno.\n" +
+            "El equipo la revisará manualmente y te confirmará cualquier ajuste."
+        );
+      }
+    }
 
-          // Reiniciar flujo
-          sessions[from] = { step: 0, lastArea: null };
+    // Reiniciar flujo
+    sessions[from] = { step: 0, lastArea: null };
+
+
         } else {
           session.step = 4;
           await sendWhats(
