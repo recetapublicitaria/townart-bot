@@ -194,12 +194,20 @@ app.post("/whatsapp-webhook", async (req, res) => {
   const session = getSession(from);
 
   try {
-    const quiereReservar =
-      lower.includes("cita") ||
-      lower.includes("agendar") ||
-      lower.includes("reservar") ||
-      lower.includes("reserva") ||
-      lower.includes("clase");
+   // Detectar si la persona REALMENTE quiere reservar/agendar
+const quiereReservar =
+  lower.includes("quiero agendar") ||
+  lower.includes("quiero reservar") ||
+  lower.includes("quiero una cita") ||
+  lower.includes("quiero mi cita") ||
+  lower.includes("agendar cita") ||
+  lower.includes("agendar una cita") ||
+  lower.includes("reservar cita") ||
+  lower.includes("reservar una clase") ||
+  lower.includes("reservar clase") ||
+  lower.includes("apartar lugar") ||
+  lower.includes("apartar mi lugar");
+
 
     // ---------- FLUJO DE RESERVA ----------
     if (session.step > 0 || quiereReservar) {
