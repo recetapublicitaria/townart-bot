@@ -1,3 +1,4 @@
+// index.js
 require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
@@ -52,7 +53,8 @@ const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID;
  *      tipo: "SPA" | "POLE",
  *      servicio: "",
  *      fecha: "AAAA-MM-DD",
- *      hora: "HH:MM"
+ *      hora: "HH:MM",
+ *      lastArea: "SPA" | "POLE"
  *   }
  * }
  */
@@ -60,7 +62,7 @@ const sessions = {};
 
 function getSession(from) {
   if (!sessions[from]) {
-    sessions[from] = { step: 0 };
+    sessions[from] = { step: 0, lastArea: null };
   }
   return sessions[from];
 }
@@ -71,6 +73,148 @@ async function sendWhats(to, text) {
     to,
     body: text,
   });
+}
+
+// ---------------- HELPERS DE FECHA/HORA ----------------
+
+function formatDateYMD(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function getWeekdayName(dateStr) {
+  const d = new Date(`${dateStr}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return "";
+  const names = [
+    "domingo",
+    "lunes",
+    "martes",
+    "miércoles",
+    "jueves",
+    "viernes",
+    "sábado",
+  ];
+  return names[d.getDay()];
+}
+
+// Fecha flexible: "hoy", "mañana", "el lunes", "15/12", "15 de diciembre", "2025-12-15"
+function parseFlexibleDate(text) {
+  const t = text.toLowerCase().trim();
+  const now = new Date();
+
+  // hoy / mañana
+  if (t === "hoy") {
+    return formatDateYMD(now);
+  }
+  if (t === "mañana" || t === "manana") {
+    const d = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    return formatDateYMD(d);
+  }
+
+  // ISO directo
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+    return t;
+  }
+
+  // día de la semana
+  const dayMap = {
+    domingo: 0,
+    lunes: 1,
+    martes: 2,
+    miércoles: 3,
+    miercoles: 3,
+    jueves: 4,
+    viernes: 5,
+    sábado: 6,
+    sabado: 6,
+  };
+
+  for (const [name, index] of Object.entries(dayMap)) {
+    if (t.includes(name)) {
+      const todayIndex = now.getDay();
+      let diff = index - todayIndex;
+      if (diff <= 0) diff += 7; // siempre el siguiente día (no hoy)
+      const d = new Date(now.getTime() + diff * 24 * 60 * 60 * 1000);
+      return formatDateYMD(d);
+    }
+  }
+
+  // dd/mm[/yyyy] o dd-mm[-yyyy]
+  const m1 = t.match(/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
+  if (m1) {
+    const day = parseInt(m1[1], 10);
+    const month = parseInt(m1[2], 10);
+    let year = m1[3] ? parseInt(m1[3], 10) : now.getFullYear();
+    if (year < 100) year += 2000;
+
+    let d = new Date(year, month - 1, day);
+    if (d < now && !m1[3]) {
+      d = new Date(year + 1, month - 1, day);
+    }
+    return formatDateYMD(d);
+  }
+
+  // "15 de diciembre", "15 diciembre"
+  const m2 = t.match(/(\d{1,2})\s*(de\s+)?([a-záéíóúñ]+)/);
+  if (m2) {
+    const day = parseInt(m2[1], 10);
+    const monthName = m2[3];
+    const monthMap = {
+      enero: 1,
+      febrero: 2,
+      marzo: 3,
+      abril: 4,
+      mayo: 5,
+      junio: 6,
+      julio: 7,
+      agosto: 8,
+      septiembre: 9,
+      setiembre: 9,
+      octubre: 10,
+      noviembre: 11,
+      diciembre: 12,
+    };
+    let month = null;
+    for (const [key, val] of Object.entries(monthMap)) {
+      if (monthName.startsWith(key)) {
+        month = val;
+        break;
+      }
+    }
+    if (month) {
+      let year = now.getFullYear();
+      let d = new Date(year, month - 1, day);
+      if (d < now) {
+        d = new Date(year + 1, month - 1, day);
+      }
+      return formatDateYMD(d);
+    }
+  }
+
+  return null;
+}
+
+// Hora flexible: "18:00", "6 pm", "7:30pm", "7"
+function parseFlexibleTime(text) {
+  const clean = text.trim().toLowerCase().replace(".", "");
+  // HH:MM 24h
+  if (/^\d{2}:\d{2}$/.test(clean)) return clean;
+
+  const m = clean.match(/(\d{1,2})(?::(\d{1,2}))?\s*(am|pm)?/);
+  if (!m) return null;
+
+  let h = parseInt(m[1], 10);
+  let min = m[2] ? parseInt(m[2], 10) : 0;
+  const ampm = m[3];
+
+  if (ampm === "pm" && h < 12) h += 12;
+  if (ampm === "am" && h === 12) h = 0;
+
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 }
 
 // Construye fecha/hora de inicio y fin (duración fija 60 min)
@@ -211,7 +355,7 @@ app.post("/whatsapp-webhook", async (req, res) => {
       "valoracion",
       "valoración",
       "manchas",
-      "pigment"
+      "pigment",
     ];
 
     const poleKeywords = [
@@ -223,7 +367,7 @@ app.post("/whatsapp-webhook", async (req, res) => {
       "aereo",
       "aéreo",
       "clase de pole",
-      "clases de pole"
+      "clases de pole",
     ];
 
     if (spaKeywords.some((k) => lower.includes(k))) {
@@ -249,7 +393,7 @@ app.post("/whatsapp-webhook", async (req, res) => {
       lower.includes("apartar lugar") ||
       lower.includes("apartar mi lugar") ||
       // Caso especial: ya veníamos hablando de algo (Spa o Pole),
-      // y la persona solo responde "sí" después de que tú le ofreciste agendar.
+      // y la persona solo responde "sí".
       (session.step === 0 && session.lastArea && isAffirmative);
 
     // ---------- FLUJO DE RESERVA ----------
@@ -268,15 +412,12 @@ app.post("/whatsapp-webhook", async (req, res) => {
       if (session.step === 1) {
         session.nombre = body;
         session.step = 2;
-
-        // Aquí NO mandamos todavía el mensaje; primero vemos si ya sabemos SPA/POLE
-        // (lo resolvemos en el bloque de paso 2)
-        // Pasamos directo al siguiente bloque lógico
+        // No preguntamos aquí; lo resolvemos en el bloque de paso 2
       }
 
       // Paso 2: tipo (SPA / POLE)
       if (session.step === 2) {
-        // 1) Si el mensaje actual menciona spa/pole, lo usamos
+        // Si este mensaje menciona spa/pole, usamos eso
         if (!session.tipo) {
           if (lower.includes("spa")) {
             session.tipo = "SPA";
@@ -285,12 +426,12 @@ app.post("/whatsapp-webhook", async (req, res) => {
           }
         }
 
-        // 2) Si NO lo dijo en este mensaje, pero veníamos hablando de algo, usamos ese contexto
+        // Si no lo dijo ahora pero ya traíamos contexto, lo usamos
         if (!session.tipo && session.lastArea) {
           session.tipo = session.lastArea;
         }
 
-        // 3) Si aún así no sabemos, preguntamos normal
+        // Si aún así no sabemos, preguntamos
         if (!session.tipo) {
           await sendWhats(
             from,
@@ -299,7 +440,7 @@ app.post("/whatsapp-webhook", async (req, res) => {
           return res.sendStatus(200);
         }
 
-        // 4) Ya tenemos tipo (SPA o POLE), avanzamos al paso 3 sin volver a preguntar
+        // Ya sabemos el tipo, pasamos a servicio
         session.step = 3;
 
         if (session.tipo === "SPA") {
@@ -317,7 +458,7 @@ app.post("/whatsapp-webhook", async (req, res) => {
         } else {
           await sendWhats(
             from,
-            `Gracias, ${session.nombre} 🤍\n\nAgendamos una *CLASE DE POLE* 🩰\n\n¿Qué clase te interesa? Por ejemplo:\n` +
+            `Gracias, ${session.nombre} 🤍\n\nAgendamos una *CLASE DE POLE* 🩰\n\n¿Qué clase te interesa? Ejemplo:\n` +
               "- Pole Fitness\n" +
               "- Flying Pole\n" +
               "- Flexi (flexibilidad)\n" +
@@ -335,49 +476,75 @@ app.post("/whatsapp-webhook", async (req, res) => {
         session.step = 4;
         await sendWhats(
           from,
-          "Genial ✨\n\n¿Para qué día quieres tu cita? Escríbelo en formato AAAA-MM-DD.\nEjemplo: 2025-12-15."
+          "Genial ✨\n\n¿Para qué día quieres tu cita?\n" +
+            "Puedes escribirme algo como:\n" +
+            "- hoy\n" +
+            "- mañana\n" +
+            "- el lunes\n" +
+            "- 15/12\n" +
+            "- 15 de diciembre\n\n" +
+            "Yo lo convierto internamente para la agenda 🗓️"
         );
         return res.sendStatus(200);
       }
 
-      // Paso 4: fecha
+      // Paso 4: fecha (flexible)
       if (session.step === 4) {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(body)) {
+        const parsedDate = parseFlexibleDate(body);
+        if (!parsedDate) {
           await sendWhats(
             from,
-            "Para evitar errores, escribe la fecha así: AAAA-MM-DD.\nEjemplo: 2025-12-15."
+            "Para anotarlo bien, ¿me ayudas con la fecha?\n" +
+              "Puedes poner, por ejemplo:\n" +
+              "- hoy\n" +
+              "- mañana\n" +
+              "- el viernes\n" +
+              "- 15/12\n" +
+              "- 15 de diciembre"
           );
           return res.sendStatus(200);
         }
 
-        session.fecha = body;
+        session.fecha = parsedDate;
         session.step = 5;
+
         await sendWhats(
           from,
-          "¿A qué hora te gustaría? Escribe la hora en formato 24 horas.\nEjemplo: 18:00."
+          "¿A qué hora te gustaría?\n" +
+            "Puedes escribirme algo como:\n" +
+            "- 11:00\n" +
+            "- 4 pm\n" +
+            "- 7:30 pm"
         );
         return res.sendStatus(200);
       }
 
-      // Paso 5: hora
+      // Paso 5: hora (flexible)
       if (session.step === 5) {
-        if (!/^\d{2}:\d{2}$/.test(body)) {
+        const parsedTime = parseFlexibleTime(body);
+        if (!parsedTime) {
           await sendWhats(
             from,
-            "Escribe la hora así: HH:MM en formato 24 horas.\nEjemplo: 18:00."
+            "Para la hora, puedes escribirme algo como:\n" +
+              "- 11:00\n" +
+              "- 4 pm\n" +
+              "- 7:30 pm"
           );
           return res.sendStatus(200);
         }
 
-        session.hora = body;
+        session.hora = parsedTime;
         session.step = 6;
 
+        const dayName = getWeekdayName(session.fecha);
         const resumen =
           `Perfecto, te resumo la reserva:\n\n` +
           `Nombre: ${session.nombre}\n` +
           `Área: ${session.tipo}\n` +
           `Servicio: ${session.servicio}\n` +
-          `Fecha: ${session.fecha}\n` +
+          `Fecha: ${session.fecha}${
+            dayName ? " (" + dayName + ")" : ""
+          }\n` +
           `Hora: ${session.hora}\n\n` +
           `¿Es correcto? Responde *SI* para confirmar o *NO* para ajustar fecha y hora.`;
 
@@ -409,20 +576,25 @@ app.post("/whatsapp-webhook", async (req, res) => {
 
             await sendWhats(
               from,
-              "Tu cita quedó registrada conmigo, pero tuve un problemita al guardarla en el calendario interno.\n" +
+              "Tu cita quedó registrada conmigo, pero tuve un detallito al guardarla en el calendario interno.\n" +
                 "El equipo la revisará manualmente y te confirmará cualquier ajuste."
             );
           }
 
-          // Reiniciar flujo (dejamos solo step; lastArea se vuelve a detectar por mensajes)
-          sessions[from] = { step: 0 };
+          // Reiniciar flujo
+          sessions[from] = { step: 0, lastArea: null };
         } else {
           session.step = 4;
           await sendWhats(
             from,
             "Perfecto, vamos a ajustar tu cita 😊\n\n" +
-              "Primero dime de nuevo la *fecha* en formato AAAA-MM-DD.\n" +
-              "Ejemplo: 2025-12-15."
+              "Primero dime de nuevo la fecha.\n" +
+              "Puedes poner:\n" +
+              "- hoy\n" +
+              "- mañana\n" +
+              "- el viernes\n" +
+              "- 15/12\n" +
+              "- 15 de diciembre"
           );
         }
 
@@ -439,41 +611,16 @@ app.post("/whatsapp-webhook", async (req, res) => {
       ],
     });
 
-    const respuestaIA =
+    let respuestaIA =
       completion.choices[0].message.content ||
       "Lo siento, no entendí muy bien tu mensaje. ¿Puedes repetirlo de otra forma? 😊";
 
-    await sendWhats(from, respuestaIA);
-
-    res.status(200).send("OK");
-  } catch (error) {
-    console.error("Error en el webhook:", error);
-
-    try {
-      await sendWhats(
-        from,
-        "Ups, tuve un problema para responderte. ¿Puedes intentar de nuevo en unos minutos, por favor? 💜"
-      );
-    } catch (e) {
-      console.error("Error enviando mensaje de error:", e);
+    const r = respuestaIA.trim().toLowerCase();
+    if (["ok", "oki", "va", "claro"].includes(r)) {
+      respuestaIA =
+        "Perfecto, lo tengo anotado 😊\n" +
+        "Si quieres, también puedo ayudarte a agendar una cita o explicarte algún servicio.";
     }
-
-    res.sendStatus(500);
-  }
-});
-
-    // ---------- RESPUESTA NORMAL CON IA ----------
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: body },
-      ],
-    });
-
-    const respuestaIA =
-      completion.choices[0].message.content ||
-      "Lo siento, no entendí muy bien tu mensaje. ¿Puedes repetirlo de otra forma? 😊";
 
     await sendWhats(from, respuestaIA);
 
