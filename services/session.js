@@ -1,37 +1,37 @@
 const sessions = {};
 
+// Sesión por usuario (WhatsApp number)
 function getSession(userId) {
   if (!sessions[userId]) {
     sessions[userId] = {
+      greeted: false,
       name: null,
-      flowActive: false,
-      area: null,
+
+      // flujo reserva
+      active: false,
+      step: 0,         // 0..5
+      area: null,      // SPA | POLE
       service: null,
-      date: null,
-      hour: null,
-      dayName: null,
-      context: {}
+      date: null,      // YYYY-MM-DD
+      hour: null,      // HH:MM
+      dayName: null,   // monday..sunday
+
+      // contexto ligero
+      lastTopic: null,
+      lastAreaHint: null // "SPA" o "POLE" si veníamos hablando de eso
     };
   }
   return sessions[userId];
 }
 
-function updateSession(userId, data) {
-  if (!sessions[userId]) getSession(userId);
-  sessions[userId] = { ...sessions[userId], ...data };
+function updateSession(userId, patch) {
+  const s = getSession(userId);
+  sessions[userId] = { ...s, ...patch };
+  return sessions[userId];
 }
 
 function resetSession(userId) {
-  sessions[userId] = {
-    name: null,
-    flowActive: false,
-    area: null,
-    service: null,
-    date: null,
-    hour: null,
-    dayName: null,
-    context: {}
-  };
+  delete sessions[userId];
 }
 
 module.exports = { getSession, updateSession, resetSession };
