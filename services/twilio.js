@@ -9,10 +9,8 @@ async function sendMessage(to, body) {
   return client.messages.create({
     from: process.env.TWILIO_WHATSAPP_NUMBER,
     to,
-    body,
+    body
   });
 }
 
-module.exports = {
-  sendMessage,
-};
+module.exports = { sendMessage };
