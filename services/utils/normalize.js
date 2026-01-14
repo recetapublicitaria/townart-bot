@@ -1,12 +1,7 @@
-function normalize(text) {
-  if (!text) return "";
-
-  return text
-    .toString()
+function stripAccents(s = "") {
+  return String(s)
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // quitar acentos
-    .toLowerCase()
-    .trim();
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
-module.exports = { normalize };
+module.exports = { stripAccents };
