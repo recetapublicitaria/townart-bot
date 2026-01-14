@@ -4,7 +4,7 @@ const bodyParser = require("body-parser");
 
 const { sendWhats } = require("./services/twilio");
 const { conversationalReply } = require("./services/conversation");
-const { processReservationFlow } = require("./sofiaFlow");
+const sofiaFlow = require("./services/sofiaFlow");
 const { getSession, updateSession, resetSession } = require("./services/session");
 const { normalize } = require("./services/utils/normalize");
 const { detectIntentAdvanced } = require("./services/utils/language");
