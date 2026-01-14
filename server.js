@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
+
 const sessionStore = require("./services/sessionStore");
 const { sendMessage } = require("./services/twilio");
 const { analyzeMessage } = require("./services/openai");
@@ -20,14 +21,20 @@ app.post("/whatsapp-webhook", async (req, res) => {
   const msg = (req.body.Body || "").trim();
   const msgLower = msg.toLowerCase();
 
-  let session = getSession(from);
+  let session = sessionStore.get(from);  // ✔ CORRECTO
 
   try {
     // ----------------------------------
     // 🔄 RESET / BORRAR SESIÓN
     // ----------------------------------
-    if (["reset", "reiniciar", "borrar", "olvidar"].includes(msgLower)) {
-      resetSession(from);
+    const resetWords = [
+      "reset", "reiniciar", "borrar", "olvidar",
+      "nuevo", "empezar", "empezar de cero",
+      "limpiar", "olvida todo"
+    ];
+
+    if (resetWords.includes(msgLower)) {
+      sessionStore.reset(from);
       await sendMessage(from, "✨ Conversación reiniciada. ¿En qué puedo ayudarte hoy?");
       return res.sendStatus(200);
     }
@@ -44,10 +51,11 @@ app.post("/whatsapp-webhook", async (req, res) => {
       KEYWORDS_START_FLOW.some(k => msgLower.includes(k)) ||
       intent === "reservar";
 
-    if (!session.active && isStartFlow) {
-      session.active = true;
+    if (!session.flowActive && isStartFlow) {
+      session.flowActive = true;
       session.step = 0;
-      updateSession(from, session);
+      sessionStore.set(from, session);
+
       await sendMessage(from, "Claro 💜 ¿A nombre de quién agendamos?");
       return res.sendStatus(200);
     }
@@ -55,7 +63,7 @@ app.post("/whatsapp-webhook", async (req, res) => {
     // ----------------------------------
     // 🧩 FLUJO DE RESERVA
     // ----------------------------------
-    if (session.active) {
+    if (session.flowActive) {
       const response = await tryStartFlow(from, msg, session, intent);
 
       if (response) {
@@ -72,7 +80,7 @@ app.post("/whatsapp-webhook", async (req, res) => {
     await sendMessage(from, aiReply);
 
     res.sendStatus(200);
-    
+
   } catch (err) {
     console.error("ERROR EN WEBHOOK:", err);
 
