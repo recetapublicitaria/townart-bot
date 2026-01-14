@@ -1,12 +1,12 @@
 const sessions = {};
 
 function getSession(id) {
-  if (!sessions[id]) sessions[id] = { step: 0, data: {} };
+  if (!sessions[id]) sessions[id] = { step: 0, memory: {} };
   return sessions[id];
 }
 
-function clearSession(id) {
-  sessions[id] = { step: 0, data: {} };
+function resetSession(id) {
+  sessions[id] = { step: 0, memory: {} };
 }
 
-module.exports = { getSession, clearSession };
+module.exports = { getSession, resetSession };
