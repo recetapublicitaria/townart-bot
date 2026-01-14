@@ -4,44 +4,77 @@ const knowledge = require("./knowledge");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
-function clampReply(text) {
-  // evita respuestas eternas
+function clamp(text, max = 650) {
   const t = String(text || "").trim();
-  if (t.length <= 700) return t;
-  return t.slice(0, 680).trim() + "…";
+  if (!t) return "";
+  return t.length <= max ? t : t.slice(0, max - 1).trim() + "…";
 }
 
-// Respuesta general (fuera de reserva)
-async function chatReply(userText, session) {
-  const sys = `
+function fallbackReply(session) {
+  const name = session?.name ? `, ${session.name}` : "";
+  return (
+    `Hola${name} 😊 Soy *Tania* de Town Art 💜\n` +
+    `¿Qué te interesa hoy: *Spa* o *clases*?\n\n` +
+    `📍 ${knowledge.brand.address}\n` +
+    `🕒 ${knowledge.hours.general}\n` +
+    `WhatsApp: ${knowledge.brand.whatsapp}`
+  );
+}
+
+// Heurística barata para detectar reserva SIN IA
+function fastIntent(text = "") {
+  const t = text.toLowerCase();
+  const keys = ["agendar", "cita", "reservar", "reserva", "apart", "agenda", "quiero una cita", "quiero agendar", "quiero reservar"];
+  if (keys.some(k => t.includes(k))) return "reservar";
+  return "chat";
+}
+
+/**
+ * analyzeMessage(text, options)
+ * - Si options.mode === "chat": devuelve texto para WhatsApp
+ * - Si options.mode === "intent": devuelve "reservar" o "chat"
+ * - Si no mandas mode: por default devuelve "chat"
+ */
+async function analyzeMessage(text, options = {}, session = null) {
+  const mode = options.mode || "chat";
+
+  // INTENT: rápido y sin tokens
+  if (mode === "intent") return fastIntent(text);
+
+  // CHAT
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      console.error("❌ Falta OPENAI_API_KEY");
+      return fallbackReply(session);
+    }
+
+    const sys = `
 Eres TANIA de Town Art Pole & Spa (Ecatepec). SIEMPRE te presentas como "Tania" (no digas asistente virtual).
-Tono: cálido, humano, breve, vendedor pero honesto.
+Tono: cálido, humano, vendedora y honesta. Respuestas cortas (máx 6–8 líneas).
 Reglas:
-- Respuestas máximo 6–8 líneas.
-- Cuando sea tema de piel/acné/manchas o tratamiento, sugiere "valoración con especialista" $${knowledge.spa.valuation.price} (30 min).
-- Para clases: aclara que hay horarios fijos y puedes compartir horarios.
-- Si preguntan ubicación/horarios/redes/teléfonos: responde exacto.
-Datos:
-Dirección: ${knowledge.brand.address}
-WhatsApp: ${knowledge.brand.whatsapp}
-Horario general: ${knowledge.hours.general}
-Horario recomendado Spa: ${knowledge.hours.spaRecommended}
+- Si preguntan por tratamientos (acné, manchas, etc.): recomienda iniciar con valoración $${knowledge.spa.valuation.price} (30 min).
+- Para clases: recuerda que hay horarios fijos y debes mostrar horarios.
+- No digas "OK" jamás.
 `.trim();
 
-  const nameLine = session?.name ? `El usuario se llama: ${session.name}` : "";
-  const lastArea = session?.lastAreaHint ? `Venían hablando de: ${session.lastAreaHint}` : "";
+    const completion = await openai.chat.completions.create({
+      model: MODEL,
+      temperature: 0.5,
+      max_tokens: 220,
+      messages: [
+        { role: "system", content: sys },
+        { role: "user", content: text },
+      ],
+    });
 
-  const completion = await openai.chat.completions.create({
-    model: MODEL,
-    temperature: 0.5,
-    max_tokens: 220,
-    messages: [
-      { role: "system", content: sys },
-      { role: "user", content: `${nameLine}\n${lastArea}\nMensaje: ${userText}`.trim() }
-    ]
-  });
-
-  return clampReply(completion.choices?.[0]?.message?.content || "");
+    const out = completion.choices?.[0]?.message?.content || "";
+    return clamp(out) || fallbackReply(session);
+  } catch (err) {
+    console.error("❌ OpenAI error:", err?.message || err);
+    return fallbackReply(session);
+  }
 }
 
-module.exports = { chatReply };
+module.exports = {
+  analyzeMessage, // ✅ para que tu server.js no truene
+};
