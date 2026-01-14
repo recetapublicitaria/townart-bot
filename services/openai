@@ -1,37 +1,28 @@
 const OpenAI = require("openai");
 
-// Cliente OpenAI
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Función robusta para preguntar a OpenAI
-async function ask(prompt) {
+// Detecta intención (reservar, preguntar, etc.)
+async function analyzeMessage(message, options = { mode: "intent" }) {
   try {
+    const prompt = options.mode === "chat"
+      ? `Responde de forma amable y breve como "Soni" de Town Art. Usuario: ${message}`
+      : `Clasifica la intención del usuario en una palabra: reservar, preguntar o desconocido.\nMensaje: ${message}`;
+
     const completion = await client.chat.completions.create({
-      model: "gpt-4.1-mini", // Se puede cambiar cuando quieras
+      model: "gpt-4.1-mini",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.8,
-      max_tokens: 450,
     });
 
-    return completion.choices[0].message.content.trim();
-  } catch (err) {
-    console.error("❌ Error llamando OpenAI:", err);
-
-    // Errores de límite
-    if (err.code === "rate_limit_exceeded") {
-      return (
-        "Ay, dame un segundito 💜… estoy procesando mucha información ahora.\n" +
-        "¿Me repites tu mensaje en un momentito?"
-      );
-    }
-
-    return (
-      "Ups… tuve un problema para responderte 💜\n" +
-      "¿Puedes escribirlo de nuevo?"
-    );
+    return completion.choices[0].message.content.trim().toLowerCase();
+  } catch (error) {
+    console.error("Error en analyzeMessage:", error);
+    return "desconocido";
   }
 }
 
-module.exports = { ask };
+module.exports = {
+  analyzeMessage,
+};
