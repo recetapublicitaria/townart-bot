@@ -1,5 +1,7 @@
 module.exports = {
-  // ============= HORARIOS POLE =============
+  // ============================================================
+  // 🟣 HORARIOS POLE (estructura para validación y lógica)
+  // ============================================================
   poleSchedule: {
     monday: ["11:00", "18:00", "19:00"],
     tuesday: ["10:00", "11:00", "19:00", "20:15"],
@@ -10,50 +12,115 @@ module.exports = {
     sunday: []
   },
 
+  // Texto bonito para que Sofía pueda enviar horarios completos
   poleScheduleText: `
 🩰 *Horarios Pole & Artes Aéreas*
 
-Lunes → 11:00, 18:00, 19:00  
-Martes → 10:00, 11:00, 19:00, 20:15  
-Miércoles → 11:00, 18:00, 19:00  
-Jueves → 10:00, 18:00, 19:00, 20:30  
-Viernes → 11:00, 12:30, 18:00, 19:00  
-Sábado → 10:00, 11:00, 13:00  
+• *Lunes:* 11:00, 18:00, 19:00  
+• *Martes:* 10:00, 11:00, 19:00, 20:15  
+• *Miércoles:* 11:00, 18:00, 19:00  
+• *Jueves:* 10:00, 18:00, 19:00, 20:30  
+• *Viernes:* 11:00, 12:30, 18:00, 19:00  
+• *Sábado:* 10:00, 11:00, 13:00  
 `,
 
-  // ============= TEXTO COMPLETO DE CONOCIMIENTO =============
+  // ============================================================
+  // 🟣 SERVICIOS SPA (Estructurado para IA + flujos)
+  // ============================================================
+  spaServices: {
+    faciales: [
+      { name: "Limpieza profunda", price: 1080 },
+      { name: "Hidratante", price: 1320 },
+      { name: "Despigmentante", price: 1320 },
+      { name: "Nutrición", price: 1320 },
+      { name: "Lifting", price: 1320 },
+      { name: "Anti acné", price: 1320 },
+      { name: "Anti aging", price: 1320 }
+    ],
+    corporales: [
+      { name: "Reductivo por área", price: 1500 },
+      { name: "Lifting de glúteo", price: 1350 },
+      { name: "Anti celulitis", price: 1300 },
+      { name: "Anti estrías", price: 900 },
+      { name: "Drenaje linfático", price: null }, // sin precio fijo
+      { name: "Pre y post quirúrgicos", price: null },
+      { name: "Despigmentación corporal", price: 749 }
+    ],
+    valoracion: {
+      name: "Valoración con especialista",
+      price: 200,
+      description:
+        "La valoración es esencial para recomendar el mejor tratamiento según tu piel, historial y necesidades. Dura 30 minutos."
+    }
+  },
+
+  // ============================================================
+  // 🟣 ACADEMIA POLE (Estructurado)
+  // ============================================================
+  poleClasses: {
+    types: ["Pole Fitness", "Flying Pole", "Flexi", "Floorwork", "Acrobacia"],
+    prices: {
+      single: { pole: 190, flying: 210, muestra: 100 },
+      packages: {
+        4: 630,
+        8: 890,
+        12: 1260,
+        combinado: 735,
+        unlimited: 2310
+      }
+    }
+  },
+
+  // ============================================================
+  // 🟣 POLÍTICAS
+  // ============================================================
+  policies: {
+    spa: [
+      "Tolerancia de 15 minutos.",
+      "Si se llega tarde, la duración del servicio puede reducirse.",
+      "Valoración recomendada antes de cualquier tratamiento profundo."
+    ],
+    pole: [
+      "Si llega tarde a clase, puede integrarse sin problema.",
+      "Las clases son multinivel.",
+      "No se requiere experiencia previa."
+    ]
+  },
+
+  // ============================================================
+  // 🟣 TEXTO DESCRIPTIVO COMPLETO (para respuestas humanas)
+  // ============================================================
   fullText: `
-TOWN ART Pole & Spa es un espacio donde combinamos bienestar, belleza, fuerza, arte y amor propio 💜.
+TOWN ART Pole & Spa es un espacio donde combinamos bienestar, belleza y fuerza.  
+Todo con un trato humano, ético y profesional 💜✨.
 
 ======================
 SPA TOWN ART
 ======================
 
-• Trabajamos con biocosmética de alta calidad  
+Trabajamos con:
+• Altos estándares en biocosmética  
 • Aparatología de grado médico  
-• Protocolos que no lastiman ni prometen milagros  
-• Enfoque ético y humano  
-• No vendemos por vender: analizamos tu piel en una valoración previa  
+• Protocolos seguros  
+• Valoración personalizada de $200 antes de iniciar tratamientos profundos  
 
 FACIALES (60 min aprox):
-- Limpieza profunda — $1,080  
-- Hidratante — $1,320  
-- Despigmentante — $1,320  
-- Nutrición — $1,320  
-- Lifting — $1,320  
-- Anti acné — $1,320  
-- Anti aging — $1,320  
+• Limpieza profunda — $1,080  
+• Hidratante — $1,320  
+• Despigmentante — $1,320  
+• Nutrición — $1,320  
+• Lifting — $1,320  
+• Anti acné — $1,320  
+• Anti aging — $1,320  
 
-TRATAMIENTOS CORPORALES:
-- Reductivos por área — $1,500  
-- Lifting de glúteo — $1,350  
-- Anti celulitis — $1,300  
-- Anti estrías — $900  
-- Drenaje linfático (60-75 min)  
-- Pre y post quirúrgicos  
-- Despigmentación corporal (por área) — $749  
-
-• Para la mayoría de tratamientos lo ideal es una *valoración con especialista* de $200.
+CORPORALES:
+• Reductivos por área — $1,500  
+• Lifting de glúteo — $1,350  
+• Anti celulitis — $1,300  
+• Anti estrías — $900  
+• Drenaje linfático (60–75 min)  
+• Pre y post quirúrgicos  
+• Despigmentación corporal — $749  
 
 ======================
 ACADEMIA TOWN ART
@@ -62,27 +129,16 @@ ACADEMIA TOWN ART
 Clases multinivel:
 • Pole Fitness  
 • Flying Pole  
-• Flexibilidad (Flexi)  
+• Flexibilidad  
 • Floorwork  
 • Acrobacia  
 
-Paquetes mensuales:
-• 4 clases — $630  
-• 8 clases — $890  
-• 12 clases — $1,260  
-• Combinado pole + flying — desde $735  
-• TODAS las clases (Miguel Ángel) — $2,310  
-
-Clase suelta:
-• Pole — $190  
+Precios:
+• Clase suelta pole — $190  
 • Flying — $210  
-• Clase muestra — $100  
-
-Filosofía:
-• Cuerpo fuerte, mente fuerte  
-• No necesitas experiencia  
-• Te acompañamos desde cero  
-• Todas las clases son multinivel  
+• Muestra — $100  
+• Paquetes — desde $630  
+• Plan ilimitado (Miguel Ángel) — $2,310  
 
 ======================
 POLÍTICAS
@@ -90,13 +146,17 @@ POLÍTICAS
 
 SPA:
 • Tolerancia 15 min  
-• Si llega tarde puede reducirse el tiempo  
+• Si llega tarde se ajusta duración  
+• Valoración recomendada siempre  
 
 POLE:
-• Si llega tarde, entra igual, pero se integra al calentamiento donde vaya el grupo  
+• Si llega tarde, entra igual  
+• Clases para todos los niveles  
+• No ocupas experiencia  
 
 ======================
 
-Soni debe hablar como experta, cálida, humana y confiable.
+Soni debe hablar como experta, cálida y profesional.    
+Usa esta información para orientar, vender y guiar decisiones con cariño.
 `
 };
