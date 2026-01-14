@@ -1,94 +1,96 @@
 require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
-
-const { sendWhats } = require("./services/twilio");
-const { conversationalReply } = require("./services/conversation");
-const sofiaFlow = require("./services/sofiaFlow");
-const { getSession, updateSession, resetSession } = require("./services/session");
-const { normalize } = require("./services/utils/normalize");
-const { detectIntentAdvanced } = require("./services/utils/language");
+const { getSession, updateSession, resetSession } = require("./services/sessionStore");
+const { sendMessage } = require("./services/twilio");
+const { analyzeMessage } = require("./services/openai");
+const { tryStartFlow } = require("./services/sofiaFlow");
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// ================================
-//          RUTA DE PRUEBA
-// ================================
-app.get("/", (req, res) => {
-  res.send("💜 Town Art Bot está corriendo y listo para apapachar");
-});
+const KEYWORDS_START_FLOW = [
+  "agendar", "cita", "reservar", "quiero una cita", "tomar clase",
+  "quiero clase", "quiero pole", "quiero spa", "servicio"
+];
 
-// ================================
-//      WEBHOOK WHATSAPP
-// ================================
 app.post("/whatsapp-webhook", async (req, res) => {
   const from = req.body.From;
   const msg = (req.body.Body || "").trim();
+  const msgLower = msg.toLowerCase();
 
-  if (!from || !msg) return res.sendStatus(200);
-
-  // RESET COMANDO PARA PRUEBAS
-  if (normalize(msg) === "*reset" || normalize(msg) === "reiniciar") {
-    resetSession(from);
-    await sendWhats(from, "Reiniciamos todo 💜 ¿en qué puedo ayudarte ahora?");
-    return res.sendStatus(200);
-  }
-
-  const session = getSession(from);
-  const intent = detectIntentAdvanced(msg);
+  let session = getSession(from);
 
   try {
-    // ====================================
-    // 1) ¿HAY UN FLUJO DE RESERVA ACTIVO?
-    // ====================================
-    if (session.flowActive) {
-      const result = await processReservationFlow(from, msg, session);
+    // ----------------------------------
+    // 🔄 RESET / BORRAR SESIÓN
+    // ----------------------------------
+    if (["reset", "reiniciar", "borrar", "olvidar"].includes(msgLower)) {
+      resetSession(from);
+      await sendMessage(from, "✨ Conversación reiniciada. ¿En qué puedo ayudarte hoy?");
       return res.sendStatus(200);
     }
 
-    // ====================================
-    // 2) DETECTAR SI DEBE ACTIVARSE FLUJO
-    // ====================================
-    if (intent === "reservation") {
-      session.flowActive = true;
+    // ----------------------------------
+    // 🧠 DETECTAR INTENCIÓN
+    // ----------------------------------
+    const intent = await analyzeMessage(msg);
+
+    // ----------------------------------
+    // 🚀 DETECTAR INICIO DE FLUJO AUTOMÁTICAMENTE
+    // ----------------------------------
+    const isStartFlow =
+      KEYWORDS_START_FLOW.some(k => msgLower.includes(k)) ||
+      intent === "reservar";
+
+    if (!session.active && isStartFlow) {
+      session.active = true;
+      session.step = 0;
       updateSession(from, session);
-      await sendWhats(from, "Claro 💜 ¿a nombre de quién agendamos?");
+      await sendMessage(from, "Claro 💜 ¿A nombre de quién agendamos?");
       return res.sendStatus(200);
     }
 
-    // ====================================
-    // 3) RESPUESTA NATURAL CONVERSACIONAL
-    // ====================================
-    const reply = await conversationalReply(from, msg, session, intent);
+    // ----------------------------------
+    // 🧩 FLUJO DE RESERVA
+    // ----------------------------------
+    if (session.active) {
+      const response = await tryStartFlow(from, msg, session, intent);
 
-    // Si la IA considera que debe iniciar reserva
-    if (session.suggestStartFlow && !session.flowActive) {
-      await sendWhats(from, reply);
-      await sendWhats(
-        from,
-        "Si quieres, puedo ayudarte a agendar tu cita 💜 ¿quieres hacerlo ahora?"
-      );
+      if (response) {
+        await sendMessage(from, response);
+      }
+
       return res.sendStatus(200);
     }
 
-    await sendWhats(from, reply);
+    // ----------------------------------
+    // 💬 RESPUESTA NORMAL (FUERA DE RESERVA)
+    // ----------------------------------
+    const aiReply = await analyzeMessage(msg, { mode: "chat" });
+    await sendMessage(from, aiReply);
+
     res.sendStatus(200);
+    
   } catch (err) {
-    console.error("❌ Error en webhook:", err);
-    await sendWhats(
+    console.error("ERROR EN WEBHOOK:", err);
+
+    await sendMessage(
       from,
-      "Ups… tuve un pequeño problema para responder 😢 ¿Puedes intentar de nuevo?"
+      "Ups... tuve un pequeño problema para responder 😢 ¿Puedes intentar de nuevo?"
     );
-    res.sendStatus(200);
+
+    return res.sendStatus(200);
   }
 });
 
-// ====================================
-//          INICIAR SERVIDOR
-// ====================================
+// ---------------------
+app.get("/", (req, res) => {
+  res.send("SOFIA BOT ✔️ Server Running");
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor escuchando en puerto ${PORT}`);
+  console.log("Servidor activo en el puerto", PORT);
 });
