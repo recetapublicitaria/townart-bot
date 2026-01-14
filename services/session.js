@@ -1,11 +1,63 @@
-const { getSession } = require("./sessionStore");
+// services/session.js
 
-function initSession(from) {
-  const session = getSession(from);
+// Memoria en RAM (si reinicias el server se limpia)
+const sessions = {};
 
-  if (!session.memory) session.memory = {};
+// Palabra clave para reiniciar sesión
+const RESET_WORDS = ["reset", "reiniciar", "borrar", "empezar de nuevo", "limpiar"];
 
-  return session;
+// --------------------------------------
+// Ver si el usuario pidió reiniciar
+// --------------------------------------
+function checkReset(message) {
+  const t = message.toLowerCase();
+  return RESET_WORDS.some(word => t.includes(word));
 }
 
-module.exports = { initSession };
+// --------------------------------------
+// Obtener sesión del usuario
+// --------------------------------------
+function getSession(user) {
+  if (!sessions[user]) {
+    sessions[user] = {
+      nombre: null,
+      tipo: null,      // SPA o POLE
+      servicio: null,
+      fecha: null,
+      hora: null,
+      poleDayName: null,
+      step: 0
+    };
+  }
+  return sessions[user];
+}
+
+// --------------------------------------
+// Guardar cambios en la sesión
+// --------------------------------------
+function updateSession(user, data) {
+  sessions[user] = { ...sessions[user], ...data };
+}
+
+// --------------------------------------
+// Resetear diálogo
+// --------------------------------------
+function resetSession(user) {
+  sessions[user] = {
+    nombre: null,
+    tipo: null,
+    servicio: null,
+    fecha: null,
+    hora: null,
+    poleDayName: null,
+    step: 0
+  };
+  return sessions[user];
+}
+
+module.exports = {
+  getSession,
+  updateSession,
+  resetSession,
+  checkReset
+};
