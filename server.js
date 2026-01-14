@@ -1,7 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
-const { getSession, updateSession, resetSession } = require("./services/sessionStore");
+const sessionStore = require("./services/sessionStore");
 const { sendMessage } = require("./services/twilio");
 const { analyzeMessage } = require("./services/openai");
 const { tryStartFlow } = require("./services/sofiaFlow");
