@@ -1,4 +1,10 @@
-const { extractDate, extractHour, detectIntent, getDayName } = require("./utils/nlp");
+const {
+  extractDate,
+  extractHour,
+  detectIntent,
+  getDayName,
+} = require("../services/utils/nlp");
+
 const { updateSession, resetSession } = require("./session");
 const { bookReservation } = require("./calendar");
 const knowledge = require("./knowledge");
@@ -27,6 +33,7 @@ async function tryStartFlow(from, msg, session, intent) {
       session.area = "SPA";
       session.step = 2;
       updateSession(from, session);
+
       return (
         "Perfecto 💆‍♀️✨\n" +
         "¿Qué tratamiento deseas?\n\n" +
