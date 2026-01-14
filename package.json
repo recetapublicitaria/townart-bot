@@ -1,24 +1,19 @@
 {
   "name": "townart-bot",
-  "version": "1.0.0",
-  "description": "Asistente inteligente para Town Art Pole & Spa",
+  "version": "2.0.0",
+  "description": "Soni – AI Concierge de Town Art con inteligencia avanzada y Google Calendar",
   "main": "server.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node server.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "engines": {
-    "node": ">=18.0.0"
-  },
   "dependencies": {
-    "body-parser": "^1.20.3",
-    "dotenv": "^16.4.5",
-    "express": "^4.21.2",
-    "googleapis": "^128.0.0",
-    "openai": "^4.61.0",
-    "twilio": "^4.24.0"
+    "axios": "^1.6.7",
+    "body-parser": "^2.2.1",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "googleapis": "^133.0.0",
+    "openai": "^4.21.0",
+    "twilio": "^5.10.7"
   }
 }
