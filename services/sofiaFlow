@@ -1,0 +1,103 @@
+const { getSession, clearSession } = require("./sessionStore");
+const { twilioSend } = require("../utils/twilio");
+const { parseDateNatural, parseHourNatural } = require("../utils/nlp");
+const { createCalendarEvent } = require("./calendar");
+const knowledge = require("./knowledge");
+
+async function startFlow(from, text, session, initial = false) {
+
+  // Paso 0: inicio
+  if (initial || session.step === 0) {
+    session.step = 1;
+    return twilioSend(from,
+      "✨ ¡Perfecto! Antes de agendar, ¿cómo te llamas?"
+    );
+  }
+
+  // Paso 1: nombre
+  if (session.step === 1) {
+    session.data.nombre = text;
+    session.step = 2;
+    return twilioSend(from,
+      `Mucho gusto ${text} 🩷\n¿Te gustaría agendar *SPA* o *CLASE DE POLE*?`
+    );
+  }
+
+  // Paso 2: tipo
+  if (session.step === 2) {
+    const t = text.toLowerCase();
+    if (t.includes("spa")) session.data.tipo = "SPA";
+    else if (t.includes("pole")) session.data.tipo = "POLE";
+    else return twilioSend(from, "Solo dime *SPA* o *POLE* 😊");
+
+    session.step = 3;
+
+    if (session.data.tipo === "SPA") {
+      return twilioSend(from,
+        "¿Qué servicio te interesa? (Ej: limpieza facial profunda, antiacné, despigmentación...)\n📌 *Recuerda:* lo más recomendable siempre es una valoración de $200."
+      );
+    }
+
+    if (session.data.tipo === "POLE") {
+      return twilioSend(from,
+        "Perfecto 🩰 ¿Qué clase deseas? (Pole Fitness, Flying Pole, Flexi, Floorwork, Acrobacia)"
+      );
+    }
+  }
+
+  // Paso 3: servicio
+  if (session.step === 3) {
+    session.data.servicio = text;
+
+    session.step = 4;
+    return twilioSend(from,
+      "¿Para qué día quieres tu cita? Puedes decir:\n→ *mañana*\n→ *lunes*\n→ *15 de enero*"
+    );
+  }
+
+  // Paso 4: fecha
+  if (session.step === 4) {
+    const fecha = parseDateNatural(text);
+    if (!fecha)
+      return twilioSend(from, "No entendí la fecha 😥 prueba con algo como:\n*lunes*, *mañana*, *15 de enero*");
+
+    session.data.fecha = fecha;
+    session.step = 5;
+
+    return twilioSend(from,
+      "¿A qué hora te gustaría? Puedes decir:\n→ *a las 5*\n→ *3 pm*\n→ *18:00*"
+    );
+  }
+
+  // Paso 5: hora
+  if (session.step === 5) {
+    const hora = parseHourNatural(text);
+    if (!hora) return twilioSend(from, "No entendí la hora, prueba con *5 pm* o *17:00*");
+
+    session.data.hora = hora;
+    session.step = 6;
+
+    return twilioSend(from,
+      `Confírmame por favor:\n📌 *${session.data.tipo} – ${session.data.servicio}*\n🗓️ ${session.data.fecha}\n🕒 ${session.data.hora}\n\n¿Lo agendamos?`
+    );
+  }
+
+  // Paso 6: confirmación
+  if (session.step === 6) {
+    if (!text.toLowerCase().startsWith("s")) {
+      session.step = 4;
+      return twilioSend(from,
+        "No pasa nada 😊 dime otra fecha para ajustarlo."
+      );
+    }
+
+    await createCalendarEvent(session.data);
+    clearSession(from);
+
+    return twilioSend(from,
+      "¡Listo! ✨ Ya quedó agendado.\nCualquier cambio solo escríbeme aquí 🩷"
+    );
+  }
+}
+
+module.exports = { startFlow };
