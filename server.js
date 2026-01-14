@@ -16,17 +16,20 @@ const KEYWORDS_START_FLOW = [
   "quiero clase", "quiero pole", "quiero spa", "servicio"
 ];
 
+// ===========================================================
+//                     WEBHOOK DE WHATSAPP
+// ===========================================================
 app.post("/whatsapp-webhook", async (req, res) => {
   const from = req.body.From;
   const msg = (req.body.Body || "").trim();
   const msgLower = msg.toLowerCase();
 
-  let session = sessionStore.get(from);  // ✔ CORRECTO
+  let session = sessionStore.get(from); // ← YA FUNCIONA
 
   try {
-    // ----------------------------------
-    // 🔄 RESET / BORRAR SESIÓN
-    // ----------------------------------
+    // ------------------------------------------------------
+    // RESET / BORRAR SESIÓN
+    // ------------------------------------------------------
     const resetWords = [
       "reset", "reiniciar", "borrar", "olvidar",
       "nuevo", "empezar", "empezar de cero",
@@ -39,14 +42,14 @@ app.post("/whatsapp-webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // ----------------------------------
-    // 🧠 DETECTAR INTENCIÓN
-    // ----------------------------------
+    // ------------------------------------------------------
+    // DETECTAR INTENCIÓN
+    // ------------------------------------------------------
     const intent = await analyzeMessage(msg);
 
-    // ----------------------------------
-    // 🚀 DETECTAR INICIO DE FLUJO AUTOMÁTICAMENTE
-    // ----------------------------------
+    // ------------------------------------------------------
+    // DETECTAR INICIO DE FLUJO DE RESERVA
+    // ------------------------------------------------------
     const isStartFlow =
       KEYWORDS_START_FLOW.some(k => msgLower.includes(k)) ||
       intent === "reservar";
@@ -60,9 +63,9 @@ app.post("/whatsapp-webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // ----------------------------------
-    // 🧩 FLUJO DE RESERVA
-    // ----------------------------------
+    // ------------------------------------------------------
+    // FLUJO DE RESERVA ACTIVO
+    // ------------------------------------------------------
     if (session.flowActive) {
       const response = await tryStartFlow(from, msg, session, intent);
 
@@ -73,27 +76,27 @@ app.post("/whatsapp-webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // ----------------------------------
-    // 💬 RESPUESTA NORMAL (FUERA DE RESERVA)
-    // ----------------------------------
+    // ------------------------------------------------------
+    // RESPUESTA NORMAL (CHAT)
+    // ------------------------------------------------------
     const aiReply = await analyzeMessage(msg, { mode: "chat" });
     await sendMessage(from, aiReply);
 
     res.sendStatus(200);
 
   } catch (err) {
-    console.error("ERROR EN WEBHOOK:", err);
+    console.error("❌ ERROR EN WEBHOOK:", err);
 
     await sendMessage(
       from,
-      "Ups... tuve un pequeño problema para responder 😢 ¿Puedes intentar de nuevo?"
+      "Ups... tuve un problema para responder 😢 ¿Puedes intentar de nuevo?"
     );
 
-    return res.sendStatus(200);
+    res.sendStatus(200);
   }
 });
 
-// ---------------------
+// ===========================================================
 app.get("/", (req, res) => {
   res.send("SOFIA BOT ✔️ Server Running");
 });
