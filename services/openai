@@ -1,17 +1,19 @@
 const OpenAI = require("openai");
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 async function askOpenAI(messages) {
-  const response = await openai.chat.completions.create({
-    model: "gpt-4.1-mini",
-    messages,
-    temperature: 0.6,
-  });
+  try {
+    const completion = await client.chat.completions.create({
+      model: "gpt-4.1-mini",
+      messages,
+      temperature: 0.6
+    });
 
-  return response.choices[0].message.content;
+    return completion.choices[0].message.content;
+  } catch (err) {
+    console.error("❌ Error en OpenAI:", err);
+    return "Ups, tuve un problema para responderte 😥. ¿Puedes repetirlo?";
+  }
 }
 
 module.exports = { askOpenAI };
