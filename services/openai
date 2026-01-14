@@ -1,19 +1,37 @@
 const OpenAI = require("openai");
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-async function askOpenAI(messages) {
+// Cliente OpenAI
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// Función robusta para preguntar a OpenAI
+async function ask(prompt) {
   try {
     const completion = await client.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages,
-      temperature: 0.6
+      model: "gpt-4.1-mini", // Se puede cambiar cuando quieras
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.8,
+      max_tokens: 450,
     });
 
-    return completion.choices[0].message.content;
+    return completion.choices[0].message.content.trim();
   } catch (err) {
-    console.error("❌ Error en OpenAI:", err);
-    return "Ups, tuve un problema para responderte 😥. ¿Puedes repetirlo?";
+    console.error("❌ Error llamando OpenAI:", err);
+
+    // Errores de límite
+    if (err.code === "rate_limit_exceeded") {
+      return (
+        "Ay, dame un segundito 💜… estoy procesando mucha información ahora.\n" +
+        "¿Me repites tu mensaje en un momentito?"
+      );
+    }
+
+    return (
+      "Ups… tuve un problema para responderte 💜\n" +
+      "¿Puedes escribirlo de nuevo?"
+    );
   }
 }
 
-module.exports = { askOpenAI };
+module.exports = { ask };
