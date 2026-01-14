@@ -1,7 +1,8 @@
-// services/calendar.js
 const { google } = require("googleapis");
 
-// Inicializa cliente
+// ===========================
+// 1) CONFIGURACIÓN GOOGLE API
+// ===========================
 const googleAuth = new google.auth.GoogleAuth({
   credentials: {
     client_email: process.env.GOOGLE_CLIENT_EMAIL,
@@ -17,30 +18,27 @@ const calendar = google.calendar({
 
 const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID;
 
-// ----------------------------------------------
-// AYUDA: crea fecha fin sumando minutos
-// ----------------------------------------------
-function addMinutes(dateTime, minutes) {
-  const d = new Date(dateTime);
+// ===========================
+// FORMATEADORES
+// ===========================
+function buildISO(date, hour) {
+  return `${date}T${hour}:00-06:00`; // Horario CDMX
+}
+
+function addMinutes(dateTimeStr, minutes) {
+  const d = new Date(dateTimeStr);
   d.setMinutes(d.getMinutes() + minutes);
   return d.toISOString();
 }
 
-// ----------------------------------------------
-// FORMATEAR FECHA + HORA A ISO
-// ----------------------------------------------
-function buildISO(dateStr, hourStr) {
-  return `${dateStr}T${hourStr}:00-06:00`; // zona MX
-}
-
-// ----------------------------------------------
-// OBTENER EVENTOS EXISTENTES EN ESA HORA
-// ----------------------------------------------
-async function getEventsAt(dateStr, hourStr) {
-  const start = buildISO(dateStr, hourStr);
+// ===========================
+// 2) OBTENER EVENTOS EXISTENTES
+// ===========================
+async function getEvents(date, hour) {
+  const start = buildISO(date, hour);
   const end = addMinutes(start, 60);
 
-  const events = await calendar.events.list({
+  const res = await calendar.events.list({
     calendarId: CALENDAR_ID,
     timeMin: start,
     timeMax: end,
@@ -48,67 +46,49 @@ async function getEventsAt(dateStr, hourStr) {
     orderBy: "startTime",
   });
 
-  return events.data.items || [];
+  return res.data.items || [];
 }
 
-// ----------------------------------------------
-// REGLA: máximo 2 citas spa por hora
-// ----------------------------------------------
-async function checkSpaCapacity(dateStr, hourStr) {
-  const events = await getEventsAt(dateStr, hourStr);
+// ===========================
+// 3) CAPACIDAD DEL SPA
+// Máximo 2 citas por hora
+// ===========================
+async function checkSpaCapacity(date, hour) {
+  const events = await getEvents(date, hour);
 
-  // cuenta solo citas que no son de POLE
-  const spaEvents = events.filter(e => {
+  const spaEvents = events.filter((e) => {
     if (!e.summary) return false;
+    const s = e.summary.toLowerCase();
     return (
-      e.summary.toLowerCase().includes("spa") ||
-      e.summary.toLowerCase().includes("valoración") ||
-      e.summary.toLowerCase().includes("facial") ||
-      e.summary.toLowerCase().includes("corporal")
+      s.includes("spa") ||
+      s.includes("facial") ||
+      s.includes("corporal") ||
+      s.includes("valoración")
     );
   });
 
-  return spaEvents.length < 2; // permitimos 0,1 → ok ; 2 → lleno
+  return spaEvents.length < 2; // permite 0 y 1; bloquea 2
 }
 
-// ----------------------------------------------
-// HORARIOS OFICIALES DE POLE TOWN ART
-// ----------------------------------------------
-const POLE_TIMETABLE = {
-  monday: ["11:00", "18:00", "19:00"],
-  tuesday: ["10:00", "11:00", "19:00", "20:15"],
-  wednesday: ["11:00", "18:00", "19:00"],
-  thursday: ["10:00", "18:00", "19:00", "20:30"],
-  friday: ["11:00", "12:30", "18:00", "19:00"],
-  saturday: ["10:00", "11:00", "13:00"],
-  sunday: [] // cerrado
-};
+// ===========================
+// 4) CREAR EVENTO EN CALENDAR
+// ===========================
+async function createEvent(session) {
+  const { name, area, service, date, hour } = session;
 
-// ----------------------------------------------
-// Validar si la hora elegida existe en POLE
-// ----------------------------------------------
-function validatePoleTime(dayName, hourStr) {
-  const options = POLE_TIMETABLE[dayName] || [];
-  return options.includes(hourStr);
-}
-
-// ----------------------------------------------
-// CREAR EVENTO EN GOOGLE CALENDAR
-// ----------------------------------------------
-async function createEvent({ nombre, tipo, servicio, fecha, hora }) {
-  const start = buildISO(fecha, hora);
+  const start = buildISO(date, hour);
   const end = addMinutes(start, 60);
 
   const summary =
-    tipo === "SPA"
-      ? `SPA – ${servicio}`
-      : `Clase de ${servicio}`;
+    area === "SPA"
+      ? `SPA – ${service}`
+      : `Clase de ${service}`;
 
   const description =
-    `Cliente: ${nombre}\n` +
-    `Área: ${tipo}\n` +
-    `Servicio: ${servicio}\n` +
-    `Fecha: ${fecha} ${hora}\n` +
+    `Cliente: ${name}\n` +
+    `Área: ${area}\n` +
+    `Servicio: ${service}\n` +
+    `Fecha: ${date} ${hour}\n` +
     `Origen: WhatsApp Bot`;
 
   const event = {
@@ -121,52 +101,38 @@ async function createEvent({ nombre, tipo, servicio, fecha, hora }) {
     end: {
       dateTime: end,
       timeZone: "America/Mexico_City",
-    }
+    },
   };
 
-  const response = await calendar.events.insert({
+  const res = await calendar.events.insert({
     calendarId: CALENDAR_ID,
     resource: event,
   });
 
-  return response.data;
+  return res.data;
 }
 
-// ----------------------------------------------
-// API PRINCIPAL: validar y crear reserva
-// ----------------------------------------------
+// ===========================
+// 5) API PRINCIPAL PARA RESERVAR
+// ===========================
 async function bookReservation(session) {
-  const { nombre, tipo, servicio, fecha, hora, poleDayName } = session;
+  const { area, date, hour } = session;
 
-  // SPA — Validar capacidad
-  if (tipo === "SPA") {
-    const available = await checkSpaCapacity(fecha, hora);
+  // SPA → Validar capacidad
+  if (area === "SPA") {
+    const ok = await checkSpaCapacity(date, hour);
 
-    if (!available) {
+    if (!ok) {
       return {
         ok: false,
-        reason: "CAPACITY",
         message:
-          "Lo siento, esa hora ya está llena 😥. Solo podemos atender a 2 personas por hora.\n\n¿Te propongo otro horario?"
+          "Lo siento 💜 esa hora ya está llena (tenemos cupo para 2 personas por hora en SPA).\n¿Quieres que te sugiera otro horario disponible?",
       };
     }
   }
 
-  // POLE — Validar horarios oficiales
-  if (tipo === "POLE") {
-    const okHour = validatePoleTime(poleDayName, hora);
+  // POLE → La disponibilidad ya se validó antes en sofiaFlow.js
 
-    if (!okHour) {
-      return {
-        ok: false,
-        reason: "INVALID_POLE_TIME",
-        message:
-          "Esa clase no existe en ese horario 🕒.\n\n¿Quieres que te diga los horarios disponibles para ese día?"
-      };
-    }
-  }
-
-  // Crear evento
   try {
     const event = await createEvent(session);
 
@@ -174,22 +140,22 @@ async function bookReservation(session) {
       ok: true,
       event,
       message:
-        "Tu cita quedó registrada en nuestro calendario interno 🗓️💜"
+        "✨ Tu cita quedó registrada en nuestro calendario interno.\nEn breve recibirás confirmación del equipo 💜",
     };
   } catch (err) {
+    console.error("❌ Error creando evento:", err);
+
     return {
       ok: false,
-      reason: "CALENDAR_ERROR",
       message:
-        "Tu cita quedó registrada conmigo, pero hubo un error al guardarla en el calendario. El equipo la revisará manualmente 💜"
+        "Tu cita quedó registrada conmigo 💜, pero hubo un problema al guardarla en el calendario. El equipo la revisará manualmente.",
     };
   }
 }
 
 module.exports = {
-  getEventsAt,
+  getEvents,
   checkSpaCapacity,
-  validatePoleTime,
+  createEvent,
   bookReservation,
-  POLE_TIMETABLE
 };
