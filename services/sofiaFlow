@@ -1,103 +1,168 @@
-const { getSession, clearSession } = require("./sessionStore");
-const { twilioSend } = require("../utils/twilio");
-const { parseDateNatural, parseHourNatural } = require("../utils/nlp");
-const { createCalendarEvent } = require("./calendar");
+const { extractDate, extractHour, detectIntent, getDayName } = require("./utils/nlp");
+const { updateSession, resetSession } = require("./session");
+const { bookReservation } = require("./calendar");
 const knowledge = require("./knowledge");
 
-async function startFlow(from, text, session, initial = false) {
+// ---------------------------------------------
+// FUNCIÓN PRINCIPAL DEL FLUJO DE RESERVA
+// ---------------------------------------------
+async function tryStartFlow(from, msg, session, intent) {
+  const text = msg.toLowerCase();
 
-  // Paso 0: inicio
-  if (initial || session.step === 0) {
+  // -----------------------------
+  // PASO 1: PEDIR NOMBRE
+  // -----------------------------
+  if (!session.name) {
+    session.name = msg.trim();
     session.step = 1;
-    return twilioSend(from,
-      "✨ ¡Perfecto! Antes de agendar, ¿cómo te llamas?"
-    );
+    updateSession(from, session);
+    return `Gracias ${session.name} 💜\n\n¿Quieres reservar *SPA* o *CLASE DE POLE*?`;
   }
 
-  // Paso 1: nombre
-  if (session.step === 1) {
-    session.data.nombre = text;
-    session.step = 2;
-    return twilioSend(from,
-      `Mucho gusto ${text} 🩷\n¿Te gustaría agendar *SPA* o *CLASE DE POLE*?`
-    );
+  // -----------------------------
+  // PASO 2: TIPO DE RESERVA (SPA / POLE)
+  // -----------------------------
+  if (!session.area) {
+    if (text.includes("spa")) {
+      session.area = "SPA";
+      session.step = 2;
+      updateSession(from, session);
+      return (
+        "Perfecto 💆‍♀️✨\n" +
+        "¿Qué tratamiento deseas?\n\n" +
+        "Por cierto, normalmente recomendamos iniciar con una *valoración* ($200), porque así la especialista analiza tu piel y elige el mejor plan para ti."
+      );
+    }
+
+    if (text.includes("pole")) {
+      session.area = "POLE";
+      session.step = 2;
+      updateSession(from, session);
+
+      return (
+        "¡Genial! 🩰\n" +
+        "¿Qué clase deseas tomar?\n" +
+        "Opciones:\n• Pole Fitness\n• Flying Pole\n• Flexi\n• Floorwork\n• Acrobacia\n\n" +
+        "Cuando elijas, te digo los horarios oficiales."
+      );
+    }
+
+    return "Solo para confirmar 💜 ¿reservas *SPA* o *CLASE DE POLE*?";
   }
 
-  // Paso 2: tipo
-  if (session.step === 2) {
-    const t = text.toLowerCase();
-    if (t.includes("spa")) session.data.tipo = "SPA";
-    else if (t.includes("pole")) session.data.tipo = "POLE";
-    else return twilioSend(from, "Solo dime *SPA* o *POLE* 😊");
-
+  // -----------------------------
+  // PASO 3: SERVICIO
+  // -----------------------------
+  if (!session.service) {
+    session.service = msg.trim();
     session.step = 3;
+    updateSession(from, session);
 
-    if (session.data.tipo === "SPA") {
-      return twilioSend(from,
-        "¿Qué servicio te interesa? (Ej: limpieza facial profunda, antiacné, despigmentación...)\n📌 *Recuerda:* lo más recomendable siempre es una valoración de $200."
+    if (session.area === "POLE") {
+      return (
+        "Perfecto 🩰 Estas son las clases disponibles:\n\n" +
+        knowledge.poleScheduleText +
+        "\n¿Qué día te gustaría asistir?"
       );
     }
 
-    if (session.data.tipo === "POLE") {
-      return twilioSend(from,
-        "Perfecto 🩰 ¿Qué clase deseas? (Pole Fitness, Flying Pole, Flexi, Floorwork, Acrobacia)"
-      );
-    }
+    return (
+      "Perfecto ✨\n" +
+      "¿Para qué día te gustaría tu cita?\nPuedes decir:\n" +
+      "• mañana\n• el lunes\n• este sábado\n• el 15 de febrero"
+    );
   }
 
-  // Paso 3: servicio
-  if (session.step === 3) {
-    session.data.servicio = text;
+  // -----------------------------
+  // PASO 4: FECHA
+  // -----------------------------
+  if (!session.date) {
+    const parsedDate = extractDate(text);
 
+    if (!parsedDate) {
+      return (
+        "No logré entender la fecha 😅\nIntenta algo como:\n" +
+        "• mañana\n• pasado mañana\n• el viernes\n• el 20 de marzo"
+      );
+    }
+
+    session.date = parsedDate;
+    session.dayName = getDayName(parsedDate);
     session.step = 4;
-    return twilioSend(from,
-      "¿Para qué día quieres tu cita? Puedes decir:\n→ *mañana*\n→ *lunes*\n→ *15 de enero*"
-    );
+    updateSession(from, session);
+
+    return "¿A qué hora te gustaría? Puedes decir:\n• a las 5\n• 6 pm\n• 10 de la mañana\n• 7 de la tarde";
   }
 
-  // Paso 4: fecha
-  if (session.step === 4) {
-    const fecha = parseDateNatural(text);
-    if (!fecha)
-      return twilioSend(from, "No entendí la fecha 😥 prueba con algo como:\n*lunes*, *mañana*, *15 de enero*");
+  // -----------------------------
+  // PASO 5: HORA
+  // -----------------------------
+  if (!session.hour) {
+    const parsedHour = extractHour(text);
 
-    session.data.fecha = fecha;
-    session.step = 5;
-
-    return twilioSend(from,
-      "¿A qué hora te gustaría? Puedes decir:\n→ *a las 5*\n→ *3 pm*\n→ *18:00*"
-    );
-  }
-
-  // Paso 5: hora
-  if (session.step === 5) {
-    const hora = parseHourNatural(text);
-    if (!hora) return twilioSend(from, "No entendí la hora, prueba con *5 pm* o *17:00*");
-
-    session.data.hora = hora;
-    session.step = 6;
-
-    return twilioSend(from,
-      `Confírmame por favor:\n📌 *${session.data.tipo} – ${session.data.servicio}*\n🗓️ ${session.data.fecha}\n🕒 ${session.data.hora}\n\n¿Lo agendamos?`
-    );
-  }
-
-  // Paso 6: confirmación
-  if (session.step === 6) {
-    if (!text.toLowerCase().startsWith("s")) {
-      session.step = 4;
-      return twilioSend(from,
-        "No pasa nada 😊 dime otra fecha para ajustarlo."
+    if (!parsedHour) {
+      return (
+        "No entendí la hora 😅\nDime algo como:\n" +
+        "• 5 pm\n• a las 6\n• 10 am\n• 7 de la tarde"
       );
     }
 
-    await createCalendarEvent(session.data);
-    clearSession(from);
+    // Validación POLE
+    if (session.area === "POLE") {
+      const allowed = knowledge.poleSchedule[session.dayName];
 
-    return twilioSend(from,
-      "¡Listo! ✨ Ya quedó agendado.\nCualquier cambio solo escríbeme aquí 🩷"
+      if (!allowed || !allowed.includes(parsedHour)) {
+        return (
+          "Esa hora no coincide con los horarios oficiales de la clase 🕒\n\n" +
+          knowledge.poleScheduleText +
+          "\nElige cualquiera de esos horarios ✨"
+        );
+      }
+    }
+
+    session.hour = parsedHour;
+    session.step = 5;
+    updateSession(from, session);
+
+    return (
+      "✨ Te resumo tu cita:\n\n" +
+      `👤 Nombre: ${session.name}\n` +
+      `📌 Área: ${session.area}\n` +
+      `✨ Servicio: ${session.service}\n` +
+      `📅 Fecha: ${session.date}\n` +
+      `⏰ Hora: ${session.hour}\n\n` +
+      "¿Confirmamos? (sí / no)"
     );
   }
+
+  // -----------------------------
+  // PASO 6: CONFIRMAR
+  // -----------------------------
+  if (session.step === 5) {
+    if (text.startsWith("si")) {
+      const result = await bookReservation(session);
+
+      resetSession(from);
+
+      return (
+        "💜 *Cita confirmada*\n" +
+        result.message +
+        "\n\nCualquier cosita, estoy por aquí ✨"
+      );
+    }
+
+    if (text.startsWith("no")) {
+      session.date = null;
+      session.hour = null;
+      session.step = 4;
+      updateSession(from, session);
+      return "No pasa nada 💜 dime otra fecha para tu cita.";
+    }
+
+    return "¿Deseas confirmar tu cita? (sí / no)";
+  }
+
+  return "Solo dime que sí o no ✨";
 }
 
-module.exports = { startFlow };
+module.exports = { tryStartFlow };
