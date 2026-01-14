@@ -24,7 +24,8 @@ app.post("/whatsapp-webhook", async (req, res) => {
   const msg = (req.body.Body || "").trim();
   const msgLower = msg.toLowerCase();
 
-  let session = sessionStore.get(from); // ← YA FUNCIONA
+  // ⭐⭐⭐ CORRECTO — ahora sí
+  let session = sessionStore.get(from);
 
   try {
     // ------------------------------------------------------
