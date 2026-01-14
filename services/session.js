@@ -1,62 +1,58 @@
-// Memoria en RAM — se reinicia si el servidor se reinicia
-// Más adelante podemos migrarlo a base de datos si lo deseas
+// Memoria en RAM — más adelante podemos migrarlo a Redis
 const sessions = {};
 
 /**
- * Estructura de sesión:
+ * Estructura de sesión coherente con SofiaFlow:
  * {
  *   name: "",
+ *   step: 0,                // ← NECESARIO PARA EL FLUJO
  *   flowActive: false,
- *   area: "",             // SPA / POLE
+ *   area: "",               // SPA / POLE
  *   service: "",
  *   date: "",
  *   hour: "",
  *   dayName: "",
- *   lastMessage: "",
  *   suggestStartFlow: false,
- *   context: {}           // memoria contextual adicional
+ *   lastMessage: "",
+ *   context: {}
  * }
  */
 
-// Crear o recuperar sesión
-function getSession(userId) {
-  if (!sessions[userId]) {
-    sessions[userId] = {
-      name: null,
-      flowActive: false,
-      area: null,
-      service: null,
-      date: null,
-      hour: null,
-      dayName: null,
-      lastMessage: null,
-      suggestStartFlow: false,
-      context: {},
-    };
-  }
-  return sessions[userId];
-}
-
-// Actualizar sesión
-function updateSession(userId, data) {
-  if (!sessions[userId]) getSession(userId);
-  sessions[userId] = { ...sessions[userId], ...data };
-}
-
-// Reset total (para pruebas o reiniciar diálogo)
-function resetSession(userId) {
-  sessions[userId] = {
+function baseSession() {
+  return {
     name: null,
+    step: 0,
     flowActive: false,
     area: null,
     service: null,
     date: null,
     hour: null,
     dayName: null,
-    lastMessage: null,
     suggestStartFlow: false,
+    lastMessage: null,
     context: {},
   };
+}
+
+// Obtener o crear sesión
+function getSession(userId) {
+  if (!sessions[userId]) sessions[userId] = baseSession();
+  return sessions[userId];
+}
+
+// Actualizar sesión
+function updateSession(userId, newData) {
+  if (!sessions[userId]) sessions[userId] = baseSession();
+
+  sessions[userId] = {
+    ...sessions[userId],
+    ...newData,
+  };
+}
+
+// Reiniciar sesión COMPLETA
+function resetSession(userId) {
+  sessions[userId] = baseSession();
 }
 
 module.exports = {
