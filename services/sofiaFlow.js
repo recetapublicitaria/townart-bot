@@ -1,117 +1,174 @@
 const { extractDate, extractHour, getDayName } = require("./utils/nlp");
-const { updateSession, resetSession } = require("./session");
+const store = require("./sessionStore");
 const { bookReservation } = require("./calendar");
 const knowledge = require("./knowledge");
+const { stripAccents } = require("./utils/normalize");
+
+function normalize(s) {
+  return stripAccents(String(s || "").toLowerCase()).trim();
+}
+
+function isYes(t) {
+  t = normalize(t);
+  return t === "si" || t.startsWith("si ") || t.startsWith("sí") || t.startsWith("sip") || t === "claro" || t.includes("confirmo");
+}
+function isNo(t) {
+  t = normalize(t);
+  return t === "no" || t.startsWith("no ") || t.includes("cambiar") || t.includes("ajustar");
+}
+
+function friendlyIntro(session) {
+  const name = session.name ? ` ${session.name}` : "";
+  return `Perfecto${name} 💜`;
+}
+
+// Detecta área por conversación previa (si venían hablando de acné/facial/corporal => SPA)
+function inferAreaFromText(textNorm) {
+  const spaHints = ["acne","acné","facial","limpieza","manchas","despigment","masaje","drenaje","reductivo","estrias","celulitis","depil", "piel"];
+  const poleHints = ["pole","flying","flexi","floorwork","acroba","clase"];
+  if (spaHints.some(k => textNorm.includes(k))) return "SPA";
+  if (poleHints.some(k => textNorm.includes(k))) return "POLE";
+  return null;
+}
 
 async function tryStartFlow(from, msg, session) {
-  const text = msg.toLowerCase();
+  const t = normalize(msg);
 
-  // 1️⃣ PEDIR NOMBRE
+  // Paso 0: asegurar nombre (si no existe)
   if (!session.name) {
-    session.name = msg.trim();
-    session.step = 1;
-    updateSession(from, session);
-    return `Gracias ${session.name} 💜\n¿Quieres reservar *SPA* o *CLASE DE POLE*?`;
+    // si el usuario escribió “quiero agendar” no es nombre:
+    const looksLikeRequest = ["agendar","cita","reservar","reserva","quiero"].some(k => t.includes(k));
+    if (looksLikeRequest) {
+      store.set(from, { active: true, step: 0 });
+      return "Claro 💜 ¿a nombre de quién agendamos?";
+    }
+
+    store.set(from, { name: msg.trim(), active: true, step: 1 });
+    return `Gracias ${msg.trim()} 💜\n\n¿Reservamos para *Spa* o para *clase de pole*?`;
   }
 
-  // 2️⃣ TIPO DE SERVICIO
+  // Si se activó pero step=0, pedir nombre (ya lo tiene) y avanzar
+  if (session.active && session.step === 0) {
+    store.set(from, { step: 1 });
+    return `Súper, ${session.name} 💜\n\n¿Reservamos para *Spa* o para *clase de pole*?`;
+  }
+
+  // Paso 1: definir área (SPA/POLE) — pero si ya veníamos hablando de SPA, no lo vuelvas robot
   if (!session.area) {
-    if (text.includes("spa")) {
-      session.area = "SPA";
-      session.step = 2;
-      updateSession(from, session);
+    const inferred = inferAreaFromText(t) || session.lastAreaHint;
+
+    if (t.includes("spa") || inferred === "SPA") {
+      store.set(from, { area: "SPA", step: 2 });
       return (
-        "Perfecto 💆‍♀️✨ ¿Qué tratamiento deseas?\n\n" +
-        "Recomendación: normalmente empezamos con una *valoración* ($200) para que la especialista elija el mejor plan para ti."
+        `${friendlyIntro(session)}\n` +
+        `¿Qué te gustaría agendar?\n` +
+        `Si es un tratamiento (acné, manchas, etc.), lo ideal es empezar con *valoración* ($${knowledge.spa.valuation.price}, 30 min).`
       );
     }
 
-    if (text.includes("pole")) {
-      session.area = "POLE";
-      session.step = 2;
-      updateSession(from, session);
+    if (t.includes("pole") || inferred === "POLE") {
+      store.set(from, { area: "POLE", step: 2 });
       return (
-        "Genial 🩰 ¿Qué clase deseas tomar?\n" +
-        knowledge.poleScheduleText
+        `${friendlyIntro(session)}\n` +
+        `¿Qué clase te interesa?\n• Pole Fitness\n• Flying Pole\n• Flexi\n• Floorwork\n• Acrobacia\n\n` +
+        `Te comparto horarios oficiales en cuanto me digas cuál 😊`
       );
     }
 
-    return "Solo dime si quieres reservar *SPA* o *POLE* 💜";
+    return "Para agendar 💜 ¿es *Spa* o *clase de pole*?";
   }
 
-  // 3️⃣ SERVICIO
+  // Paso 2: servicio
   if (!session.service) {
-    session.service = msg.trim();
-    session.step = 3;
-    updateSession(from, session);
-
-    if (session.area === "POLE")
-      return "¿Qué día deseas asistir? (lunes, martes, sábado, etc.)";
-
-    return "¿Para qué día deseas tu cita? (puedes decir: mañana, lunes, 20 de febrero…)";
-  }
-
-  // 4️⃣ FECHA
-  if (!session.date) {
-    const date = extractDate(text);
-    if (!date) return "No entendí la fecha 😅 dime otra (mañana, lunes, 15 feb…)";
-    session.date = date;
-    session.dayName = getDayName(date);
-    session.step = 4;
-    updateSession(from, session);
-    return "¿A qué hora te gustaría? (5 pm, 10 am, 7 de la tarde…)";
-  }
-
-  // 5️⃣ HORA
-  if (!session.hour) {
-    const hour = extractHour(text);
-    if (!hour) return "No entendí la hora 😅 dime otra.";
+    const service = msg.trim();
+    store.set(from, { service, step: 3 });
 
     if (session.area === "POLE") {
-      const allowed = knowledge.poleSchedule[session.dayName.toLowerCase()];
-      if (!allowed || !allowed.includes(hour)) {
+      return (
+        `Perfecto 🩰\n\n${knowledge.poleScheduleText}\n\n` +
+        `Dime qué día te gustaría (por ejemplo: “lunes” o “este sábado”).`
+      );
+    }
+
+    return (
+      `Perfecto ✨\n` +
+      `¿Qué día te gustaría? Puedes decir: “mañana”, “el lunes”, “este sábado”, “15 de febrero”…`
+    );
+  }
+
+  // Paso 3: fecha (natural)
+  if (!session.date) {
+    const date = extractDate(t);
+    if (!date) {
+      return "No entendí la fecha 😅 ¿Me la dices así?: “mañana”, “el lunes” o “15 de febrero”.";
+    }
+
+    const dayName = getDayName(date);
+    store.set(from, { date, dayName, step: 4 });
+
+    // POLE: después de fecha, pedimos hora pero VALIDAREMOS vs horarios
+    return `Perfecto 💜 ¿a qué hora? (por ejemplo “6 pm”, “11:00”, “a las 10”)`;
+  }
+
+  // Paso 4: hora (natural)
+  if (!session.hour) {
+    const hour = extractHour(t);
+    if (!hour) {
+      return "No entendí la hora 😅 Dime por ejemplo: “6 pm”, “10 am”, “18:00”.";
+    }
+
+    // Validación POLE: horarios reales
+    if (session.area === "POLE") {
+      const allowed = knowledge.poleSchedule[session.dayName] || [];
+      if (!allowed.includes(hour)) {
         return (
-          "Ese horario no coincide con la clase 🕒\n\n" +
-          knowledge.poleScheduleText
+          `Esa hora no coincide con los horarios oficiales 🕒\n\n` +
+          `${knowledge.poleScheduleText}\n\n` +
+          `Elige uno de esos horarios y lo agendamos 💜`
         );
       }
     }
 
-    session.hour = hour;
-    session.step = 5;
-    updateSession(from, session);
+    store.set(from, { hour, step: 5 });
 
+    // Resumen final (aquí sí usamos formato estricto)
     return (
-      "✨ Te resumo tu cita:\n" +
-      `👤 ${session.name}\n` +
-      `📌 ${session.area}\n` +
-      `✨ ${session.service}\n` +
-      `📅 ${session.date}\n` +
-      `⏰ ${session.hour}\n\n` +
-      "¿Confirmamos? (sí / no)"
+      `✨ Te resumo para confirmar:\n\n` +
+      `👤 Nombre: ${session.name}\n` +
+      `📌 Área: ${session.area}\n` +
+      `✨ Servicio: ${session.service}\n` +
+      `📅 Fecha: ${session.date}\n` +
+      `⏰ Hora: ${session.hour}\n\n` +
+      `¿Confirmamos? (sí / no)`
     );
   }
 
-  // 6️⃣ CONFIRMACIÓN
+  // Paso 5: confirmar
   if (session.step === 5) {
-    if (text.startsWith("si")) {
+    if (isYes(t)) {
       const result = await bookReservation(session);
-      resetSession(from);
-      return "💜 *Cita confirmada*.\n" + result.message;
+
+      if (!result.ok) {
+        // No reseteamos; dejamos que elija otra hora/día
+        store.set(from, { hour: null, step: 4 });
+        return result.message;
+      }
+
+      store.reset(from); // reinicio completo, pero conservar nombre sería útil:
+      // Si quieres conservar nombre entre resets, dímelo y lo dejo persistente.
+
+      return `💜 Listo, quedó confirmada.\n\n${result.message}`;
     }
 
-    if (text.startsWith("no")) {
-      session.date = null;
-      session.hour = null;
-      session.step = 3;
-      updateSession(from, session);
-      return "No pasa nada 💜 dime otra fecha.";
+    if (isNo(t)) {
+      store.set(from, { date: null, hour: null, step: 3 });
+      return "Va 💜 dime qué otro día te gustaría.";
     }
 
-    return "¿Deseas confirmar tu cita? (sí / no)";
+    return "¿Confirmamos? (sí / no)";
   }
 
-  return "Estoy aquí para ayudarte 💜";
+  return "Te leo 💜";
 }
 
 module.exports = { tryStartFlow };
