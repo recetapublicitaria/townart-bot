@@ -1,103 +1,42 @@
 require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
-const Twilio = require("twilio");
-
-const { generalResponse } = require("./services/conversation");
-const { processBookingFlow } = require("./services/logic");
-const { checkReset, resetSession, getSession } = require("./services/session");
+const { handleMessage } = require("./services/sofia");
+const { sendWhats } = require("./services/twilio");
 
 const app = express();
 
-// Middleware requerido por Twilio
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-// Twilio WhatsApp Client
-const twilioClient = Twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
-
-// -----------------------------
-// Enviar mensaje por WhatsApp
-// -----------------------------
-async function sendWhats(to, text) {
-  await twilioClient.messages.create({
-    from: process.env.TWILIO_WHATSAPP_NUMBER,
-    to,
-    body: text
-  });
-}
-
-// -----------------------------
-// RUTA DE PRUEBA
-// -----------------------------
+// ------------------ RUTA PRINCIPAL ------------------
 app.get("/", (req, res) => {
-  res.send("Town Art SuperBot está corriendo 💜🤖✨");
+  res.send("Soni AI Concierge está vivo y funcionando 💜");
 });
 
-// -----------------------------
-// WEBHOOK PRINCIPAL DE WHATSAPP
-// -----------------------------
+// ------------------ WEBHOOK TWILIO ------------------
 app.post("/whatsapp-webhook", async (req, res) => {
   const from = req.body.From;
-  const message = (req.body.Body || "").trim();
-
-  console.log("💬 Mensaje entrante:", from, message);
+  const msg = req.body.Body ?? "";
 
   try {
-    // 1️⃣ Revisar si pidió RESET
-    if (checkReset(message)) {
-      resetSession(from);
-      await sendWhats(
-        from,
-        "Perfecto 💜 reinicié todo.\n\n¿En qué te puedo ayudar hoy?"
-      );
-      return res.sendStatus(200);
-    }
-
-    // 2️⃣ Revisar si está en un flujo de reserva
-    const session = getSession(from);
-    if (
-      session.nombre ||
-      session.tipo ||
-      session.servicio ||
-      session.fecha ||
-      session.hora
-    ) {
-      const response = await processBookingFlow(from, message);
-
-      if (response && response.reply) {
-        await sendWhats(from, response.reply);
-      }
-      return res.sendStatus(200);
-    }
-
-    // 3️⃣ Si NO está en flujo de reserva → respuesta normal
-    const response = await generalResponse(from, message);
-
-    if (response && response.reply) {
-      await sendWhats(from, response.reply);
-    }
-
+    const reply = await handleMessage(from, msg);
+    await sendWhats(from, reply);
     res.sendStatus(200);
-  } catch (err) {
-    console.error("🔥 ERROR EN WEBHOOK:", err);
+  } catch (e) {
+    console.error("❌ Error procesando mensaje:", e);
 
     await sendWhats(
       from,
-      "Ups 💜 tuve un problema para responder.\n¿Puedes intentar de nuevo?"
+      "Ups… tuve un pequeño problema al responderte 😢 ¿Puedes intentar de nuevo?"
     );
 
     res.sendStatus(500);
   }
 });
 
-// -----------------------------
-// INICIAR SERVIDOR
-// -----------------------------
+// ------------------ INICIO SERVIDOR ------------------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
-});
+app.listen(PORT, () =>
+  console.log(`🚀 Soni escuchando en puerto ${PORT}`)
+);
