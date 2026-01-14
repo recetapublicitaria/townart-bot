@@ -1,0 +1,25 @@
+const { detectIntent } = require("../utils/nlp");
+const { startFlow } = require("./sofiaFlow");
+const { replyInfo } = require("./conversation");
+const { getSession } = require("./sessionStore");
+const { twilioSend } = require("../utils/twilio");
+
+async function handleIncomingMessage(from, text) {
+  const session = getSession(from);
+  const intent = detectIntent(text, session);
+
+  // Si ya está en flujo de agenda → seguir
+  if (session.step > 0) {
+    return startFlow(from, text, session);
+  }
+
+  // Si detecta intención de reservar → iniciar flujo
+  if (intent === "reservar") {
+    return startFlow(from, text, session, true);
+  }
+
+  // Si detecta intención informativa
+  return replyInfo(from, text, session);
+}
+
+module.exports = { handleIncomingMessage };
