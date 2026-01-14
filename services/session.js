@@ -1,63 +1,66 @@
-// services/session.js
-
-// Memoria en RAM (si reinicias el server se limpia)
+// Memoria en RAM — se reinicia si el servidor se reinicia
+// Más adelante podemos migrarlo a base de datos si lo deseas
 const sessions = {};
 
-// Palabra clave para reiniciar sesión
-const RESET_WORDS = ["reset", "reiniciar", "borrar", "empezar de nuevo", "limpiar"];
+/**
+ * Estructura de sesión:
+ * {
+ *   name: "",
+ *   flowActive: false,
+ *   area: "",             // SPA / POLE
+ *   service: "",
+ *   date: "",
+ *   hour: "",
+ *   dayName: "",
+ *   lastMessage: "",
+ *   suggestStartFlow: false,
+ *   context: {}           // memoria contextual adicional
+ * }
+ */
 
-// --------------------------------------
-// Ver si el usuario pidió reiniciar
-// --------------------------------------
-function checkReset(message) {
-  const t = message.toLowerCase();
-  return RESET_WORDS.some(word => t.includes(word));
-}
-
-// --------------------------------------
-// Obtener sesión del usuario
-// --------------------------------------
-function getSession(user) {
-  if (!sessions[user]) {
-    sessions[user] = {
-      nombre: null,
-      tipo: null,      // SPA o POLE
-      servicio: null,
-      fecha: null,
-      hora: null,
-      poleDayName: null,
-      step: 0
+// Crear o recuperar sesión
+function getSession(userId) {
+  if (!sessions[userId]) {
+    sessions[userId] = {
+      name: null,
+      flowActive: false,
+      area: null,
+      service: null,
+      date: null,
+      hour: null,
+      dayName: null,
+      lastMessage: null,
+      suggestStartFlow: false,
+      context: {},
     };
   }
-  return sessions[user];
+  return sessions[userId];
 }
 
-// --------------------------------------
-// Guardar cambios en la sesión
-// --------------------------------------
-function updateSession(user, data) {
-  sessions[user] = { ...sessions[user], ...data };
+// Actualizar sesión
+function updateSession(userId, data) {
+  if (!sessions[userId]) getSession(userId);
+  sessions[userId] = { ...sessions[userId], ...data };
 }
 
-// --------------------------------------
-// Resetear diálogo
-// --------------------------------------
-function resetSession(user) {
-  sessions[user] = {
-    nombre: null,
-    tipo: null,
-    servicio: null,
-    fecha: null,
-    hora: null,
-    poleDayName: null,
-    step: 0
+// Reset total (para pruebas o reiniciar diálogo)
+function resetSession(userId) {
+  sessions[userId] = {
+    name: null,
+    flowActive: false,
+    area: null,
+    service: null,
+    date: null,
+    hour: null,
+    dayName: null,
+    lastMessage: null,
+    suggestStartFlow: false,
+    context: {},
   };
-  return sessions[user];
 }
 
 module.exports = {
   getSession,
   updateSession,
   resetSession,
-  checkReset
 };
