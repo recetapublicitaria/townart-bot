@@ -1,7 +1,13 @@
-const { getSession, updateSession, resetSession } = require("./session");
+// SessionStore — interfaz estándar del motor Sofia
+
+const {
+  getSession,
+  updateSession,
+  resetSession,
+} = require("./session");
 
 module.exports = {
-  get: getSession,
-  set: updateSession,
-  reset: resetSession,
+  get: (id) => getSession(id),
+  set: (id, data) => updateSession(id, data),
+  reset: (id) => resetSession(id),
 };
